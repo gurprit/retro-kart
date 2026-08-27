@@ -18,7 +18,6 @@ export class RaceScene extends Phaser.Scene {
   private playerKart?: PlayerKart
   private racerSprite?: RacerSpriteView
   private speedText?: Phaser.GameObjects.Text
-  private frameText?: Phaser.GameObjects.Text
 
   private cameraState: Mode7CameraState = {
     x: 0,
@@ -101,7 +100,6 @@ export class RaceScene extends Phaser.Scene {
       GAME_HEIGHT - 42,
     )
 
-    this.updateFrameHud()
     this.mode7Renderer.render(this.cameraState)
   }
 
@@ -139,7 +137,10 @@ export class RaceScene extends Phaser.Scene {
       steerDirection = 1
     }
 
-    this.racerSprite?.update(steerDirection)
+    this.racerSprite?.update(
+      steerDirection,
+      Math.min(1, Math.abs(this.playerKart.speedRatio)),
+    )
     this.updateHud()
     this.mode7Renderer.render(this.cameraState)
   }
@@ -163,25 +164,11 @@ export class RaceScene extends Phaser.Scene {
       left: Phaser.Input.Keyboard.Key
       right: Phaser.Input.Keyboard.Key
     }
-
-    keyboard.on('keydown', (event: KeyboardEvent) => {
-      if (!this.racerSprite) {
-        return
-      }
-
-      if (event.code === 'BracketLeft') {
-        this.racerSprite.cycleFrame(-1)
-        this.updateFrameHud()
-      } else if (event.code === 'BracketRight') {
-        this.racerSprite.cycleFrame(1)
-        this.updateFrameHud()
-      }
-    })
   }
 
   private createHud() {
     this.add
-      .text(20, 18, 'RETRO KART // RACER SPRITE TEST', {
+      .text(20, 18, 'RETRO KART // RACER TEST', {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: '#ffffff',
@@ -201,7 +188,7 @@ export class RaceScene extends Phaser.Scene {
       .setDepth(30)
 
     this.add
-      .text(20, 68, 'LEFT/RIGHT OR A/D STEER   [ ] CHANGE BASE FRAME', {
+      .text(20, 68, 'LEFT/RIGHT OR A/D STEER', {
         fontFamily: 'monospace',
         fontSize: '14px',
         color: '#ffffff',
@@ -218,17 +205,6 @@ export class RaceScene extends Phaser.Scene {
         stroke: '#000000',
         strokeThickness: 4,
       })
-      .setDepth(30)
-
-    this.frameText = this.add
-      .text(GAME_WIDTH - 20, GAME_HEIGHT - 44, 'FRAME 0/0', {
-        fontFamily: 'monospace',
-        fontSize: '14px',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
-      .setOrigin(1, 0)
       .setDepth(30)
 
     this.add
@@ -249,18 +225,6 @@ export class RaceScene extends Phaser.Scene {
 
     this.speedText.setText(
       `SPEED ${direction}${speedPercent.toString().padStart(3, '0')}`,
-    )
-  }
-
-  private updateFrameHud() {
-    if (!this.frameText || !this.racerSprite) {
-      return
-    }
-
-    const source = this.racerSprite.currentSourceIndex
-
-    this.frameText.setText(
-      `FRAME ${this.racerSprite.currentFrameIndex + 1}/${this.racerSprite.frameCount}  SRC ${source}`,
     )
   }
 
