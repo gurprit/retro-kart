@@ -18,6 +18,7 @@ export class Mode7Renderer {
   private readonly height: number
   private readonly nearDistance: number
   private readonly farDistance: number
+  private readonly halfFovTangent: number
 
   constructor(
     scene: Phaser.Scene,
@@ -76,8 +77,13 @@ export class Mode7Renderer {
     this.outputImageData = this.outputContext.createImageData(width, height)
 
     const minSourceDimension = Math.min(this.sourceWidth, this.sourceHeight)
-    this.nearDistance = minSourceDimension * 0.025
-    this.farDistance = minSourceDimension * 0.62
+    this.nearDistance = minSourceDimension * 0.055
+    this.farDistance = minSourceDimension * 0.56
+
+    const horizontalFovDegrees = 62
+    this.halfFovTangent = Math.tan(
+      Phaser.Math.DegToRad(horizontalFovDegrees / 2),
+    )
 
     scene.add
       .image(x, y, 'mode7-ground')
@@ -94,11 +100,16 @@ export class Mode7Renderer {
 
     for (let screenY = 0; screenY < this.height; screenY += 1) {
       const rowProgress = screenY / Math.max(1, this.height - 1)
-      const perspective = Math.pow(1 - rowProgress, 2.15)
-      const distance =
+
+      // Reciprocal depth gives a flatter, more camera-like ground plane than
+      // the previous power curve, which exaggerated the near field.
+      const denominator =
         this.nearDistance +
-        (this.farDistance - this.nearDistance) * perspective
-      const halfWorldWidth = distance * 0.92
+        (this.farDistance - this.nearDistance) * rowProgress
+      const distance =
+        (this.nearDistance * this.farDistance) / denominator
+
+      const halfWorldWidth = distance * this.halfFovTangent
       const rowCenterX = camera.x + forwardX * distance
       const rowCenterY = camera.y + forwardY * distance
 
