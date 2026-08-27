@@ -7,6 +7,11 @@ type SpriteBounds = {
   height: number
 }
 
+const CELL_SIZE = 32
+const COLUMNS = 14
+const ROWS = 4
+const TARGET_HEIGHT = 96
+
 export class RacerSpriteView {
   private readonly scene: Phaser.Scene
   private readonly textureKey: string
@@ -22,22 +27,14 @@ export class RacerSpriteView {
   ) {
     this.scene = scene
     this.textureKey = textureKey
-    this.frames = this.detectFrames()
+    this.frames = this.createPrototypeFrames()
 
     this.sprite = scene.add
       .image(x, y, textureKey)
       .setOrigin(0.5, 1)
       .setDepth(20)
 
-    this.baseFrameIndex = this.findInitialFrameIndex()
-
-    if (this.frames.length === 0) {
-      this.sprite
-        .setDisplaySize(220, 160)
-        .setAlpha(0.9)
-    } else {
-      this.applyFrame(this.baseFrameIndex)
-    }
+    this.applyFrame(this.baseFrameIndex)
   }
 
   get frameCount() {
@@ -49,10 +46,6 @@ export class RacerSpriteView {
   }
 
   cycleFrame(direction: number) {
-    if (this.frames.length === 0) {
-      return
-    }
-
     this.baseFrameIndex = Phaser.Math.Wrap(
       this.baseFrameIndex + direction,
       0,
@@ -63,10 +56,6 @@ export class RacerSpriteView {
   }
 
   update(steerDirection: number) {
-    if (this.frames.length === 0) {
-      return
-    }
-
     const offset = steerDirection < 0 ? -1 : steerDirection > 0 ? 1 : 0
     const frameIndex = Phaser.Math.Wrap(
       this.baseFrameIndex + offset,
@@ -77,144 +66,24 @@ export class RacerSpriteView {
     this.applyFrame(frameIndex)
   }
 
-  private detectFrames() {
-    const sourceTexture = this.scene.textures.get(this.textureKey)
-    const sourceImage = sourceTexture.getSourceImage() as CanvasImageSource & {
-      width: number
-      height: number
-    }
-
-    const canvas = document.createElement('canvas')
-    canvas.width = sourceImage.width
-    canvas.height = sourceImage.height
-
-    const context = canvas.getContext('2d', { willReadFrequently: true })
-
-    if (!context) {
-      return []
-    }
-
-    context.drawImage(sourceImage, 0, 0)
-
-    const pixels = context.getImageData(
-      0,
-      0,
-      canvas.width,
-      canvas.height,
-    ).data
-
-    const background = {
-      r: pixels[0],
-      g: pixels[1],
-      b: pixels[2],
-      a: pixels[3],
-    }
-
-    const isOccupied = (x: number, y: number) => {
-      const index = (y * canvas.width + x) * 4
-      const alpha = pixels[index + 3]
-
-      if (alpha <= 16) {
-        return false
-      }
-
-      const colourDistance =
-        Math.abs(pixels[index] - background.r) +
-        Math.abs(pixels[index + 1] - background.g) +
-        Math.abs(pixels[index + 2] - background.b) +
-        Math.abs(alpha - background.a)
-
-      return colourDistance > 24
-    }
-
-    const occupiedRows = new Array<boolean>(canvas.height).fill(false)
-
-    for (let y = 0; y < canvas.height; y += 1) {
-      for (let x = 0; x < canvas.width; x += 1) {
-        if (isOccupied(x, y)) {
-          occupiedRows[y] = true
-          break
-        }
-      }
-    }
-
-    const rowBands: Array<{ start: number; end: number }> = []
-    let bandStart = -1
-
-    for (let y = 0; y <= canvas.height; y += 1) {
-      const occupied = y < canvas.height && occupiedRows[y]
-
-      if (occupied && bandStart === -1) {
-        bandStart = y
-      } else if (!occupied && bandStart !== -1) {
-        rowBands.push({ start: bandStart, end: y - 1 })
-        bandStart = -1
-      }
-    }
-
+  private createPrototypeFrames() {
     const frames: SpriteBounds[] = []
 
-    for (const band of rowBands) {
-      const occupiedColumns = new Array<boolean>(canvas.width).fill(false)
-
-      for (let x = 0; x < canvas.width; x += 1) {
-        for (let y = band.start; y <= band.end; y += 1) {
-          if (isOccupied(x, y)) {
-            occupiedColumns[x] = true
-            break
-          }
-        }
-      }
-
-      let columnStart = -1
-
-      for (let x = 0; x <= canvas.width; x += 1) {
-        const occupied = x < canvas.width && occupiedColumns[x]
-
-        if (occupied && columnStart === -1) {
-          columnStart = x
-        } else if (!occupied && columnStart !== -1) {
-          const width = x - columnStart
-          const height = band.end - band.start + 1
-
-          if (width >= 12 && height >= 12 && width <= 100 && height <= 100) {
-            frames.push({
-              x: columnStart,
-              y: band.start,
-              width,
-              height,
-            })
-          }
-
-          columnStart = -1
-        }
+    // The temporary Mario sheet is laid out on a regular 32px grid in its
+    // upper racing-frame section. Keep these prototype coordinates isolated
+    // here so original art can replace the sheet without touching gameplay.
+    for (let row = 0; row < ROWS; row += 1) {
+      for (let column = 0; column < COLUMNS; column += 1) {
+        frames.push({
+          x: column * CELL_SIZE,
+          y: row * CELL_SIZE,
+          width: CELL_SIZE,
+          height: CELL_SIZE,
+        })
       }
     }
 
     return frames
-  }
-
-  private findInitialFrameIndex() {
-    if (this.frames.length === 0) {
-      return 0
-    }
-
-    let bestIndex = 0
-    let bestScore = Number.POSITIVE_INFINITY
-
-    for (let index = 0; index < this.frames.length; index += 1) {
-      const frame = this.frames[index]
-      const aspectScore = Math.abs(frame.width / frame.height - 0.9)
-      const sizeScore = Math.abs(frame.height - 40) / 40
-      const score = aspectScore + sizeScore
-
-      if (score < bestScore) {
-        bestScore = score
-        bestIndex = index
-      }
-    }
-
-    return bestIndex
   }
 
   private applyFrame(index: number) {
@@ -224,15 +93,26 @@ export class RacerSpriteView {
       return
     }
 
-    this.sprite.setVisible(true)
     this.sprite.setCrop(frame.x, frame.y, frame.width, frame.height)
 
-    const targetHeight = 96
     const sourceTexture = this.scene.textures.get(this.textureKey)
-    const sourceImage = sourceTexture.getSourceImage() as { width: number; height: number }
-    const scale = targetHeight / frame.height
+    const sourceImage = sourceTexture.getSourceImage() as {
+      width: number
+      height: number
+    }
+    const scale = TARGET_HEIGHT / frame.height
 
+    // Phaser crops Image objects in source-texture coordinates. The display
+    // origin therefore needs to follow the crop centre/bottom rather than the
+    // full 455x331 source sheet.
     this.sprite.setScale(scale)
-    this.sprite.setDisplayOrigin(sourceImage.width / 2, sourceImage.height)
+    this.sprite.setDisplayOrigin(
+      frame.x + frame.width / 2,
+      frame.y + frame.height,
+    )
+
+    // Retain source access here so TypeScript catches a missing/invalid texture
+    // during development rather than silently drawing nothing.
+    void sourceImage.width
   }
 }
