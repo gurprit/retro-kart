@@ -187,16 +187,22 @@ export class RaceScene extends Phaser.Scene {
       SURFACE_HANDLING[this.currentSurface],
     )
 
-    const nextSurface = this.trackSurfaceMap.sample(
-      this.playerKart.x,
-      this.playerKart.y,
+    const nextX = this.playerKart.x
+    const nextY = this.playerKart.y
+    const hitBarrier = this.trackSurfaceMap.collidesAlongSegment(
+      previousX,
+      previousY,
+      nextX,
+      nextY,
     )
 
-    if (nextSurface === 'barrier' || nextSurface === 'void') {
+    if (hitBarrier) {
+      // Collision is based on the full motion segment, so it works equally when
+      // travelling forwards or reversing and cannot tunnel through thin blocks.
       this.playerKart.applyCollision(previousX, previousY)
       this.currentSurface = this.trackSurfaceMap.sample(previousX, previousY)
     } else {
-      this.currentSurface = nextSurface
+      this.currentSurface = this.trackSurfaceMap.sample(nextX, nextY)
     }
 
     this.syncCameraToKart()
