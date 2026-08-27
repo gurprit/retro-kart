@@ -177,7 +177,13 @@ export class RaceScene extends Phaser.Scene {
       steerDirection = 1
     }
 
-    this.racerSprite?.update(steerDirection, deltaSeconds)
+    this.racerSprite?.update(
+      steerDirection,
+      this.playerKart.speedRatio,
+      this.currentSurface !== 'road',
+      deltaSeconds,
+    )
+
     this.updateHud()
     this.mode7Renderer.render(this.cameraState)
   }
