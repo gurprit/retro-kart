@@ -10,10 +10,10 @@ const CELL_HEIGHT = 32
 const COLUMNS = 11
 const TARGET_HEIGHT = 82
 const BACKGROUND_TOLERANCE = 36
+const STEER_RELEASE_DELAY = 0.08
 
 const FRAME_SOURCES = {
-  hardTurn: 5,
-  gentleTurn: 7,
+  turn: 7,
   neutral: 11,
 } as const
 
@@ -21,6 +21,8 @@ export class RacerSpriteView {
   private readonly scene: Phaser.Scene
   private readonly sprite: Phaser.GameObjects.Image
   private readonly frames = new Map<number, SpriteFrame>()
+  private displayedSteerDirection = 0
+  private steerReleaseTimer = 0
 
   constructor(
     scene: Phaser.Scene,
@@ -40,18 +42,28 @@ export class RacerSpriteView {
       .setDisplaySize(TARGET_HEIGHT, TARGET_HEIGHT)
   }
 
-  update(steerDirection: number, speedRatio: number) {
-    if (steerDirection === 0) {
+  update(steerDirection: number, deltaSeconds: number) {
+    if (steerDirection !== 0) {
+      this.displayedSteerDirection = steerDirection
+      this.steerReleaseTimer = STEER_RELEASE_DELAY
+    } else if (this.steerReleaseTimer > 0) {
+      this.steerReleaseTimer = Math.max(
+        0,
+        this.steerReleaseTimer - deltaSeconds,
+      )
+    } else {
+      this.displayedSteerDirection = 0
+    }
+
+    if (this.displayedSteerDirection === 0) {
       this.applyFrame(FRAME_SOURCES.neutral, false)
       return
     }
 
-    const turnFrame =
-      speedRatio >= 0.65
-        ? FRAME_SOURCES.hardTurn
-        : FRAME_SOURCES.gentleTurn
-
-    this.applyFrame(turnFrame, steerDirection > 0)
+    this.applyFrame(
+      FRAME_SOURCES.turn,
+      this.displayedSteerDirection > 0,
+    )
   }
 
   private createMappedFrames(textureKey: string) {
@@ -76,11 +88,7 @@ export class RacerSpriteView {
     sourceContext.imageSmoothingEnabled = false
     sourceContext.drawImage(sourceImage, 0, 0)
 
-    const sourceIndices = [
-      FRAME_SOURCES.hardTurn,
-      FRAME_SOURCES.gentleTurn,
-      FRAME_SOURCES.neutral,
-    ]
+    const sourceIndices = [FRAME_SOURCES.turn, FRAME_SOURCES.neutral]
 
     for (const sourceIndex of sourceIndices) {
       const column = sourceIndex % COLUMNS
