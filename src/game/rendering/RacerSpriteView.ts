@@ -54,6 +54,7 @@ export class RacerSpriteView {
     steerDirection: number,
     speedRatio: number,
     isOffRoad: boolean,
+    isPowersliding: boolean,
     deltaSeconds: number,
   ) {
     const clampedSteer = Phaser.Math.Clamp(steerDirection, -1, 1)
@@ -62,7 +63,7 @@ export class RacerSpriteView {
     let sourceIndex = FRAME_SOURCES.neutral
 
     if (clampedSteer !== 0) {
-      if (clampedSpeed >= TURN_FRAME_THRESHOLDS.hard) {
+      if (isPowersliding || clampedSpeed >= TURN_FRAME_THRESHOLDS.hard) {
         sourceIndex = FRAME_SOURCES.hardTurn
       } else if (clampedSpeed >= TURN_FRAME_THRESHOLDS.medium) {
         sourceIndex = FRAME_SOURCES.mediumTurn
