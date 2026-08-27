@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { PlayerKart } from '../entities/PlayerKart'
+import { SkidEffects } from '../effects/SkidEffects'
 import {
   Mode7Renderer,
   type Mode7CameraState,
@@ -28,6 +29,11 @@ const SURFACE_HANDLING = {
     gripMultiplier: 0.7,
     dragMultiplier: 2.2,
   },
+  barrier: {
+    speedMultiplier: 0.4,
+    gripMultiplier: 0.6,
+    dragMultiplier: 3,
+  },
   void: {
     speedMultiplier: 0.42,
     gripMultiplier: 0.55,
@@ -39,9 +45,11 @@ export class RaceScene extends Phaser.Scene {
   private mode7Renderer?: Mode7Renderer
   private playerKart?: PlayerKart
   private racerSprite?: RacerSpriteView
+  private skidEffects?: SkidEffects
   private trackSurfaceMap?: TrackSurfaceMap
   private speedText?: Phaser.GameObjects.Text
   private surfaceText?: Phaser.GameObjects.Text
+  private stateText?: Phaser.GameObjects.Text
   private currentSurface: TrackSurface = 'road'
 
   private cameraState: Mode7CameraState = {
@@ -51,6 +59,7 @@ export class RaceScene extends Phaser.Scene {
   }
 
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys
+  private slideKey?: Phaser.Input.Keyboard.Key
   private wasd?: {
     up: Phaser.Input.Keyboard.Key
     down: Phaser.Input.Keyboard.Key
@@ -132,6 +141,12 @@ export class RaceScene extends Phaser.Scene {
       GAME_HEIGHT - 42,
     )
 
+    this.skidEffects = new SkidEffects(
+      this,
+      GAME_WIDTH / 2,
+      GAME_HEIGHT - 42,
+    )
+
     this.mode7Renderer.render(this.cameraState)
     this.updateHud()
   }
@@ -150,11 +165,15 @@ export class RaceScene extends Phaser.Scene {
     const deltaSeconds = Math.min(delta / 1000, 0.05)
     const steerLeft = this.cursors.left.isDown || this.wasd.left.isDown
     const steerRight = this.cursors.right.isDown || this.wasd.right.isDown
+    const powerslide = this.slideKey?.isDown ?? false
 
     this.currentSurface = this.trackSurfaceMap.sample(
       this.playerKart.x,
       this.playerKart.y,
     )
+
+    const previousX = this.playerKart.x
+    const previousY = this.playerKart.y
 
     this.playerKart.update(
       {
@@ -162,10 +181,23 @@ export class RaceScene extends Phaser.Scene {
         brake: this.cursors.down.isDown || this.wasd.down.isDown,
         steerLeft,
         steerRight,
+        powerslide,
       },
       deltaSeconds,
       SURFACE_HANDLING[this.currentSurface],
     )
+
+    const nextSurface = this.trackSurfaceMap.sample(
+      this.playerKart.x,
+      this.playerKart.y,
+    )
+
+    if (nextSurface === 'barrier' || nextSurface === 'void') {
+      this.playerKart.applyCollision(previousX, previousY)
+      this.currentSurface = this.trackSurfaceMap.sample(previousX, previousY)
+    } else {
+      this.currentSurface = nextSurface
+    }
 
     this.syncCameraToKart()
 
@@ -177,10 +209,19 @@ export class RaceScene extends Phaser.Scene {
       steerDirection = 1
     }
 
+    const isPowersliding = this.playerKart.state === 'powerslide'
+
     this.racerSprite?.update(
       steerDirection,
       this.playerKart.speedRatio,
-      this.currentSurface !== 'road',
+      this.currentSurface === 'offRoad',
+      isPowersliding,
+      deltaSeconds,
+    )
+
+    this.skidEffects?.update(
+      isPowersliding,
+      this.playerKart.speedRatio,
       deltaSeconds,
     )
 
@@ -196,6 +237,7 @@ export class RaceScene extends Phaser.Scene {
     }
 
     this.cursors = keyboard.createCursorKeys()
+    this.slideKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT)
     this.wasd = keyboard.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.W,
       down: Phaser.Input.Keyboard.KeyCodes.S,
@@ -211,7 +253,7 @@ export class RaceScene extends Phaser.Scene {
 
   private createHud() {
     this.add
-      .text(20, 18, 'RETRO KART // SURFACE TEST', {
+      .text(20, 18, 'RETRO KART // COLLISION + POWERSLIDE TEST', {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: '#ffffff',
@@ -231,7 +273,7 @@ export class RaceScene extends Phaser.Scene {
       .setDepth(30)
 
     this.add
-      .text(20, 68, 'LEFT/RIGHT OR A/D STEER', {
+      .text(20, 68, 'LEFT/RIGHT OR A/D STEER   HOLD SHIFT + STEER TO POWERSLIDE', {
         fontFamily: 'monospace',
         fontSize: '14px',
         color: '#ffffff',
@@ -248,6 +290,17 @@ export class RaceScene extends Phaser.Scene {
         stroke: '#000000',
         strokeThickness: 4,
       })
+      .setDepth(30)
+
+    this.stateText = this.add
+      .text(GAME_WIDTH / 2, GAME_HEIGHT - 44, 'NORMAL', {
+        fontFamily: 'monospace',
+        fontSize: '15px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5, 0)
       .setDepth(30)
 
     this.surfaceText = this.add
@@ -270,7 +323,12 @@ export class RaceScene extends Phaser.Scene {
   }
 
   private updateHud() {
-    if (!this.speedText || !this.surfaceText || !this.playerKart) {
+    if (
+      !this.speedText ||
+      !this.surfaceText ||
+      !this.stateText ||
+      !this.playerKart
+    ) {
       return
     }
 
@@ -286,9 +344,12 @@ export class RaceScene extends Phaser.Scene {
         ? 'ROAD'
         : this.currentSurface === 'offRoad'
           ? 'OFF-ROAD'
-          : 'OUTSIDE'
+          : this.currentSurface === 'barrier'
+            ? 'BARRIER'
+            : 'OUTSIDE'
 
     this.surfaceText.setText(surfaceLabel)
+    this.stateText.setText(this.playerKart.state.toUpperCase())
   }
 
   private syncCameraToKart() {
