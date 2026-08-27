@@ -4,18 +4,21 @@ import {
   Mode7Renderer,
   type Mode7CameraState,
 } from '../rendering/Mode7Renderer'
+import { RacerSpriteView } from '../rendering/RacerSpriteView'
 
 const GAME_WIDTH = 800
 const GAME_HEIGHT = 600
 const HORIZON_Y = 250
 const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
 const TRACK_TEXTURE_KEY = 'prototype-track'
+const RACER_TEXTURE_KEY = 'prototype-racer'
 
 export class RaceScene extends Phaser.Scene {
   private mode7Renderer?: Mode7Renderer
   private playerKart?: PlayerKart
+  private racerSprite?: RacerSpriteView
   private speedText?: Phaser.GameObjects.Text
-  private kartGraphic?: Phaser.GameObjects.Container
+  private frameText?: Phaser.GameObjects.Text
 
   private cameraState: Mode7CameraState = {
     x: 0,
@@ -39,6 +42,11 @@ export class RaceScene extends Phaser.Scene {
     this.load.image(
       TRACK_TEXTURE_KEY,
       '/assets/tracks/Mario Circuit 1.png',
+    )
+
+    this.load.image(
+      RACER_TEXTURE_KEY,
+      '/assets/characters/Racers - Mario.png',
     )
   }
 
@@ -85,8 +93,15 @@ export class RaceScene extends Phaser.Scene {
     this.syncCameraToKart()
     this.createKeyboardControls()
     this.createHud()
-    this.createKartGraphic()
 
+    this.racerSprite = new RacerSpriteView(
+      this,
+      RACER_TEXTURE_KEY,
+      GAME_WIDTH / 2,
+      GAME_HEIGHT - 42,
+    )
+
+    this.updateFrameHud()
     this.mode7Renderer.render(this.cameraState)
   }
 
@@ -115,7 +130,16 @@ export class RaceScene extends Phaser.Scene {
     )
 
     this.syncCameraToKart()
-    this.updateKartGraphic(steerLeft, steerRight)
+
+    let steerDirection = 0
+
+    if (steerLeft) {
+      steerDirection = -1
+    } else if (steerRight) {
+      steerDirection = 1
+    }
+
+    this.racerSprite?.update(steerDirection)
     this.updateHud()
     this.mode7Renderer.render(this.cameraState)
   }
@@ -139,11 +163,25 @@ export class RaceScene extends Phaser.Scene {
       left: Phaser.Input.Keyboard.Key
       right: Phaser.Input.Keyboard.Key
     }
+
+    keyboard.on('keydown', (event: KeyboardEvent) => {
+      if (!this.racerSprite) {
+        return
+      }
+
+      if (event.code === 'BracketLeft') {
+        this.racerSprite.cycleFrame(-1)
+        this.updateFrameHud()
+      } else if (event.code === 'BracketRight') {
+        this.racerSprite.cycleFrame(1)
+        this.updateFrameHud()
+      }
+    })
   }
 
   private createHud() {
     this.add
-      .text(20, 18, 'RETRO KART // HANDLING TEST', {
+      .text(20, 18, 'RETRO KART // RACER SPRITE TEST', {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: '#ffffff',
@@ -163,7 +201,7 @@ export class RaceScene extends Phaser.Scene {
       .setDepth(30)
 
     this.add
-      .text(20, 68, 'LEFT/RIGHT OR A/D STEER', {
+      .text(20, 68, 'LEFT/RIGHT OR A/D STEER   [ ] CHANGE BASE FRAME', {
         fontFamily: 'monospace',
         fontSize: '14px',
         color: '#ffffff',
@@ -182,51 +220,23 @@ export class RaceScene extends Phaser.Scene {
       })
       .setDepth(30)
 
+    this.frameText = this.add
+      .text(GAME_WIDTH - 20, GAME_HEIGHT - 44, 'FRAME 0/0', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(1, 0)
+      .setDepth(30)
+
     this.add
       .image(GAME_WIDTH - 18, 18, TRACK_TEXTURE_KEY)
       .setOrigin(1, 0)
       .setDisplaySize(150, 150)
       .setAlpha(0.9)
       .setDepth(30)
-  }
-
-  private createKartGraphic() {
-    const shadow = this.add.ellipse(0, 15, 82, 22, 0x000000, 0.35)
-    const rearAxle = this.add.rectangle(0, 2, 76, 18, 0x252525)
-    const leftTyre = this.add.rectangle(-36, 8, 15, 30, 0x111111)
-    const rightTyre = this.add.rectangle(36, 8, 15, 30, 0x111111)
-    const body = this.add.rectangle(0, -8, 54, 42, 0xd83b35)
-    const seat = this.add.rectangle(0, -18, 29, 20, 0x24558a)
-    const bumper = this.add.rectangle(0, 15, 58, 7, 0xe8e8e8)
-
-    this.kartGraphic = this.add
-      .container(GAME_WIDTH / 2, GAME_HEIGHT - 78, [
-        shadow,
-        rearAxle,
-        leftTyre,
-        rightTyre,
-        body,
-        seat,
-        bumper,
-      ])
-      .setDepth(20)
-  }
-
-  private updateKartGraphic(steerLeft: boolean, steerRight: boolean) {
-    if (!this.kartGraphic || !this.playerKart) {
-      return
-    }
-
-    let steeringLean = 0
-
-    if (steerLeft) {
-      steeringLean = -0.035
-    } else if (steerRight) {
-      steeringLean = 0.035
-    }
-
-    const speedRatio = Math.min(1, Math.abs(this.playerKart.speedRatio))
-    this.kartGraphic.rotation = steeringLean * speedRatio
   }
 
   private updateHud() {
@@ -239,6 +249,16 @@ export class RaceScene extends Phaser.Scene {
 
     this.speedText.setText(
       `SPEED ${direction}${speedPercent.toString().padStart(3, '0')}`,
+    )
+  }
+
+  private updateFrameHud() {
+    if (!this.frameText || !this.racerSprite) {
+      return
+    }
+
+    this.frameText.setText(
+      `FRAME ${this.racerSprite.currentFrameIndex + 1}/${this.racerSprite.frameCount}`,
     )
   }
 
