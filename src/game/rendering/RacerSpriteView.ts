@@ -5,11 +5,12 @@ type SpriteFrame = {
   sourceIndex: number
 }
 
-const CELL_SIZE = 32
-const COLUMNS = 14
-const ROWS = 4
+const CELL_WIDTH = 32
+const CELL_HEIGHT = 32
+const COLUMNS = 11
+const ROWS = 5
 const TARGET_HEIGHT = 96
-const BACKGROUND_TOLERANCE = 44
+const BACKGROUND_TOLERANCE = 36
 const MIN_FOREGROUND_PIXELS = 28
 
 export class RacerSpriteView {
@@ -105,12 +106,12 @@ export class RacerSpriteView {
     for (let row = 0; row < ROWS; row += 1) {
       for (let column = 0; column < COLUMNS; column += 1) {
         const sourceIndex = row * COLUMNS + column
-        const x = column * CELL_SIZE
-        const y = row * CELL_SIZE
+        const x = column * CELL_WIDTH
+        const y = row * CELL_HEIGHT
 
         if (
-          x + CELL_SIZE > sourceCanvas.width ||
-          y + CELL_SIZE > sourceCanvas.height
+          x + CELL_WIDTH > sourceCanvas.width ||
+          y + CELL_HEIGHT > sourceCanvas.height
         ) {
           continue
         }
@@ -118,8 +119,8 @@ export class RacerSpriteView {
         const imageData = sourceContext.getImageData(
           x,
           y,
-          CELL_SIZE,
-          CELL_SIZE,
+          CELL_WIDTH,
+          CELL_HEIGHT,
         )
 
         const cleaned = this.removeCellBackground(imageData)
@@ -131,8 +132,8 @@ export class RacerSpriteView {
         const frameTextureKey = `prototype-racer-frame-${sourceIndex}`
         const frameTexture = this.scene.textures.createCanvas(
           frameTextureKey,
-          CELL_SIZE,
-          CELL_SIZE,
+          CELL_WIDTH,
+          CELL_HEIGHT,
         )
 
         if (!frameTexture) {
@@ -155,38 +156,43 @@ export class RacerSpriteView {
 
   private removeCellBackground(imageData: ImageData) {
     const pixels = imageData.data
-    const corners = [
-      0,
-      (CELL_SIZE - 1) * 4,
-      ((CELL_SIZE - 1) * CELL_SIZE) * 4,
-      (CELL_SIZE * CELL_SIZE - 1) * 4,
-    ]
+    const colourCounts = new Map<string, number>()
 
-    const backgroundColours = corners.map((index) => ({
-      r: pixels[index],
-      g: pixels[index + 1],
-      b: pixels[index + 2],
-    }))
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index + 3] === 0) {
+        continue
+      }
+
+      const key = `${pixels[index]},${pixels[index + 1]},${pixels[index + 2]}`
+      colourCounts.set(key, (colourCounts.get(key) ?? 0) + 1)
+    }
+
+    let background = { r: 0, g: 0, b: 0 }
+    let largestCount = 0
+
+    for (const [key, count] of colourCounts) {
+      if (count <= largestCount) {
+        continue
+      }
+
+      largestCount = count
+      const [r, g, b] = key.split(',').map(Number)
+      background = { r, g, b }
+    }
 
     let foregroundPixels = 0
 
     for (let index = 0; index < pixels.length; index += 4) {
-      const alpha = pixels[index + 3]
-
-      if (alpha === 0) {
+      if (pixels[index + 3] === 0) {
         continue
       }
 
-      const matchesBackground = backgroundColours.some((background) => {
-        const distance =
-          Math.abs(pixels[index] - background.r) +
-          Math.abs(pixels[index + 1] - background.g) +
-          Math.abs(pixels[index + 2] - background.b)
+      const distance =
+        Math.abs(pixels[index] - background.r) +
+        Math.abs(pixels[index + 1] - background.g) +
+        Math.abs(pixels[index + 2] - background.b)
 
-        return distance <= BACKGROUND_TOLERANCE
-      })
-
-      if (matchesBackground) {
+      if (distance <= BACKGROUND_TOLERANCE) {
         pixels[index + 3] = 0
       } else {
         foregroundPixels += 1
