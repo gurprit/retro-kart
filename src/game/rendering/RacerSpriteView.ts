@@ -77,7 +77,7 @@ export class RacerSpriteView {
       this.sprite
         .setVisible(true)
         .setTexture(textureKey)
-        .setFlipX(clampedSteer > 0)
+        .setFlipX(clampedSteer < 0)
     }
 
     let bounceOffset = 0
