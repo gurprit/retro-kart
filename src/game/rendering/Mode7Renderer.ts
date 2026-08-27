@@ -1,0 +1,139 @@
+import Phaser from 'phaser'
+
+export type Mode7CameraState = {
+  x: number
+  y: number
+  angle: number
+}
+
+export class Mode7Renderer {
+  readonly sourceWidth: number
+  readonly sourceHeight: number
+
+  private readonly sourcePixels: Uint8ClampedArray
+  private readonly outputTexture: Phaser.Textures.CanvasTexture
+  private readonly outputContext: CanvasRenderingContext2D
+  private readonly outputImageData: ImageData
+  private readonly width: number
+  private readonly height: number
+  private readonly nearDistance: number
+  private readonly farDistance: number
+
+  constructor(
+    scene: Phaser.Scene,
+    sourceTextureKey: string,
+    width: number,
+    height: number,
+    x: number,
+    y: number,
+  ) {
+    this.width = width
+    this.height = height
+
+    const sourceTexture = scene.textures.get(sourceTextureKey)
+    const sourceImage = sourceTexture.getSourceImage() as CanvasImageSource & {
+      width: number
+      height: number
+    }
+
+    this.sourceWidth = sourceImage.width
+    this.sourceHeight = sourceImage.height
+
+    const sourceCanvas = document.createElement('canvas')
+    sourceCanvas.width = this.sourceWidth
+    sourceCanvas.height = this.sourceHeight
+
+    const sourceContext = sourceCanvas.getContext('2d', {
+      willReadFrequently: true,
+    })
+
+    if (!sourceContext) {
+      throw new Error('Could not create source canvas context')
+    }
+
+    sourceContext.imageSmoothingEnabled = false
+    sourceContext.drawImage(sourceImage, 0, 0)
+    this.sourcePixels = sourceContext.getImageData(
+      0,
+      0,
+      this.sourceWidth,
+      this.sourceHeight,
+    ).data
+
+    const outputTexture = scene.textures.createCanvas(
+      'mode7-ground',
+      width,
+      height,
+    )
+
+    if (!outputTexture) {
+      throw new Error('Could not create Mode 7 canvas texture')
+    }
+
+    this.outputTexture = outputTexture
+    this.outputContext = outputTexture.context
+    this.outputContext.imageSmoothingEnabled = false
+    this.outputImageData = this.outputContext.createImageData(width, height)
+
+    const minSourceDimension = Math.min(this.sourceWidth, this.sourceHeight)
+    this.nearDistance = minSourceDimension * 0.025
+    this.farDistance = minSourceDimension * 0.62
+
+    scene.add
+      .image(x, y, 'mode7-ground')
+      .setOrigin(0)
+      .setDisplaySize(width, height)
+  }
+
+  render(camera: Mode7CameraState) {
+    const outputPixels = this.outputImageData.data
+    const forwardX = Math.sin(camera.angle)
+    const forwardY = -Math.cos(camera.angle)
+    const rightX = Math.cos(camera.angle)
+    const rightY = Math.sin(camera.angle)
+
+    for (let screenY = 0; screenY < this.height; screenY += 1) {
+      const rowProgress = screenY / Math.max(1, this.height - 1)
+      const perspective = Math.pow(1 - rowProgress, 2.15)
+      const distance =
+        this.nearDistance +
+        (this.farDistance - this.nearDistance) * perspective
+      const halfWorldWidth = distance * 0.92
+      const rowCenterX = camera.x + forwardX * distance
+      const rowCenterY = camera.y + forwardY * distance
+
+      for (let screenX = 0; screenX < this.width; screenX += 1) {
+        const lateral =
+          ((screenX / Math.max(1, this.width - 1)) * 2 - 1) * halfWorldWidth
+        const worldX = rowCenterX + rightX * lateral
+        const worldY = rowCenterY + rightY * lateral
+
+        const outputIndex = (screenY * this.width + screenX) * 4
+        const sourceX = Math.floor(worldX)
+        const sourceY = Math.floor(worldY)
+
+        if (
+          sourceX < 0 ||
+          sourceY < 0 ||
+          sourceX >= this.sourceWidth ||
+          sourceY >= this.sourceHeight
+        ) {
+          outputPixels[outputIndex] = 27
+          outputPixels[outputIndex + 1] = 33
+          outputPixels[outputIndex + 2] = 24
+          outputPixels[outputIndex + 3] = 255
+          continue
+        }
+
+        const sourceIndex = (sourceY * this.sourceWidth + sourceX) * 4
+        outputPixels[outputIndex] = this.sourcePixels[sourceIndex]
+        outputPixels[outputIndex + 1] = this.sourcePixels[sourceIndex + 1]
+        outputPixels[outputIndex + 2] = this.sourcePixels[sourceIndex + 2]
+        outputPixels[outputIndex + 3] = 255
+      }
+    }
+
+    this.outputContext.putImageData(this.outputImageData, 0, 0)
+    this.outputTexture.refresh()
+  }
+}
