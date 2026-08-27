@@ -11,7 +11,7 @@ const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
 const TRACK_TEXTURE_KEY = 'prototype-track'
 
 export class RaceScene extends Phaser.Scene {
-  private renderer?: Mode7Renderer
+  private mode7Renderer?: Mode7Renderer
   private cameraState: Mode7CameraState = {
     x: 0,
     y: 0,
@@ -59,7 +59,7 @@ export class RaceScene extends Phaser.Scene {
       0x4e8d47,
     )
 
-    this.renderer = new Mode7Renderer(
+    this.mode7Renderer = new Mode7Renderer(
       this,
       TRACK_TEXTURE_KEY,
       GAME_WIDTH,
@@ -68,11 +68,14 @@ export class RaceScene extends Phaser.Scene {
       HORIZON_Y,
     )
 
-    this.cameraState.x = this.renderer.sourceWidth * 0.5
-    this.cameraState.y = this.renderer.sourceHeight * 0.78
+    this.cameraState.x = this.mode7Renderer.sourceWidth * 0.5
+    this.cameraState.y = this.mode7Renderer.sourceHeight * 0.78
 
     this.moveSpeed =
-      Math.min(this.renderer.sourceWidth, this.renderer.sourceHeight) * 0.32
+      Math.min(
+        this.mode7Renderer.sourceWidth,
+        this.mode7Renderer.sourceHeight,
+      ) * 0.32
 
     const keyboard = this.input.keyboard
 
@@ -118,11 +121,11 @@ export class RaceScene extends Phaser.Scene {
       .setAlpha(0.9)
       .setDepth(10)
 
-    this.renderer.render(this.cameraState)
+    this.mode7Renderer.render(this.cameraState)
   }
 
   update(_time: number, delta: number) {
-    if (!this.renderer || !this.cursors || !this.wasd) {
+    if (!this.mode7Renderer || !this.cursors || !this.wasd) {
       return
     }
 
@@ -156,6 +159,6 @@ export class RaceScene extends Phaser.Scene {
       this.cameraState.y -= Math.cos(this.cameraState.angle) * distance
     }
 
-    this.renderer.render(this.cameraState)
+    this.mode7Renderer.render(this.cameraState)
   }
 }
