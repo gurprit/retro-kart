@@ -5,6 +5,18 @@ export type KartControls = {
   steerRight: boolean
 }
 
+export type KartSurfaceHandling = {
+  speedMultiplier: number
+  gripMultiplier: number
+  dragMultiplier: number
+}
+
+const DEFAULT_SURFACE: KartSurfaceHandling = {
+  speedMultiplier: 1,
+  gripMultiplier: 1,
+  dragMultiplier: 1,
+}
+
 export class PlayerKart {
   x: number
   y: number
@@ -34,9 +46,13 @@ export class PlayerKart {
     this.turnRate = 2.15
   }
 
-  update(controls: KartControls, deltaSeconds: number) {
-    this.updateSpeed(controls, deltaSeconds)
-    this.updateSteering(controls, deltaSeconds)
+  update(
+    controls: KartControls,
+    deltaSeconds: number,
+    surface: KartSurfaceHandling = DEFAULT_SURFACE,
+  ) {
+    this.updateSpeed(controls, deltaSeconds, surface)
+    this.updateSteering(controls, deltaSeconds, surface)
 
     const distance = this.speed * deltaSeconds
     this.x += Math.sin(this.angle) * distance
@@ -47,41 +63,61 @@ export class PlayerKart {
     return this.speed / this.maxForwardSpeed
   }
 
-  private updateSpeed(controls: KartControls, deltaSeconds: number) {
+  private updateSpeed(
+    controls: KartControls,
+    deltaSeconds: number,
+    surface: KartSurfaceHandling,
+  ) {
+    const forwardLimit = this.maxForwardSpeed * surface.speedMultiplier
+    const reverseLimit = this.maxReverseSpeed * surface.speedMultiplier
+
     if (controls.accelerate) {
       if (this.speed < 0) {
         this.speed = Math.min(0, this.speed + this.braking * deltaSeconds)
       } else {
         this.speed = Math.min(
-          this.maxForwardSpeed,
+          forwardLimit,
           this.speed + this.acceleration * deltaSeconds,
         )
       }
-      return
-    }
-
-    if (controls.brake) {
+    } else if (controls.brake) {
       if (this.speed > 0) {
         this.speed = Math.max(0, this.speed - this.braking * deltaSeconds)
       } else {
         this.speed = Math.max(
-          -this.maxReverseSpeed,
+          -reverseLimit,
           this.speed - this.reverseAcceleration * deltaSeconds,
         )
       }
-      return
+    } else {
+      const resistance =
+        this.rollingResistance * surface.dragMultiplier * deltaSeconds
+
+      if (this.speed > 0) {
+        this.speed = Math.max(0, this.speed - resistance)
+      } else if (this.speed < 0) {
+        this.speed = Math.min(0, this.speed + resistance)
+      }
     }
 
-    const resistance = this.rollingResistance * deltaSeconds
-
-    if (this.speed > 0) {
-      this.speed = Math.max(0, this.speed - resistance)
-    } else if (this.speed < 0) {
-      this.speed = Math.min(0, this.speed + resistance)
+    if (this.speed > forwardLimit) {
+      const excess = this.speed - forwardLimit
+      const slowdown =
+        this.rollingResistance * surface.dragMultiplier * 2.2 * deltaSeconds
+      this.speed = forwardLimit + Math.max(0, excess - slowdown)
+    } else if (this.speed < -reverseLimit) {
+      const excess = -reverseLimit - this.speed
+      const slowdown =
+        this.rollingResistance * surface.dragMultiplier * 2.2 * deltaSeconds
+      this.speed = -reverseLimit - Math.max(0, excess - slowdown)
     }
   }
 
-  private updateSteering(controls: KartControls, deltaSeconds: number) {
+  private updateSteering(
+    controls: KartControls,
+    deltaSeconds: number,
+    surface: KartSurfaceHandling,
+  ) {
     let steerDirection = 0
 
     if (controls.steerLeft) {
@@ -106,6 +142,7 @@ export class PlayerKart {
       steerDirection *
       reverseDirection *
       this.turnRate *
+      surface.gripMultiplier *
       speedFactor *
       deltaSeconds
   }
