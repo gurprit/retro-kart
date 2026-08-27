@@ -5,6 +5,10 @@ import {
   type Mode7CameraState,
 } from '../rendering/Mode7Renderer'
 import { RacerSpriteView } from '../rendering/RacerSpriteView'
+import {
+  TrackSurfaceMap,
+  type TrackSurface,
+} from '../tracks/TrackSurfaceMap'
 
 const GAME_WIDTH = 800
 const GAME_HEIGHT = 600
@@ -13,11 +17,32 @@ const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
 const TRACK_TEXTURE_KEY = 'prototype-track'
 const RACER_TEXTURE_KEY = 'prototype-racer'
 
+const SURFACE_HANDLING = {
+  road: {
+    speedMultiplier: 1,
+    gripMultiplier: 1,
+    dragMultiplier: 1,
+  },
+  offRoad: {
+    speedMultiplier: 0.58,
+    gripMultiplier: 0.7,
+    dragMultiplier: 2.2,
+  },
+  void: {
+    speedMultiplier: 0.42,
+    gripMultiplier: 0.55,
+    dragMultiplier: 2.8,
+  },
+} as const
+
 export class RaceScene extends Phaser.Scene {
   private mode7Renderer?: Mode7Renderer
   private playerKart?: PlayerKart
   private racerSprite?: RacerSpriteView
+  private trackSurfaceMap?: TrackSurfaceMap
   private speedText?: Phaser.GameObjects.Text
+  private surfaceText?: Phaser.GameObjects.Text
+  private currentSurface: TrackSurface = 'road'
 
   private cameraState: Mode7CameraState = {
     x: 0,
@@ -77,6 +102,8 @@ export class RaceScene extends Phaser.Scene {
       HORIZON_Y,
     )
 
+    this.trackSurfaceMap = new TrackSurfaceMap(this, TRACK_TEXTURE_KEY)
+
     const worldScale = Math.min(
       this.mode7Renderer.sourceWidth,
       this.mode7Renderer.sourceHeight,
@@ -87,6 +114,11 @@ export class RaceScene extends Phaser.Scene {
       this.mode7Renderer.sourceHeight * 0.78,
       Math.PI / 2,
       worldScale,
+    )
+
+    this.currentSurface = this.trackSurfaceMap.sample(
+      this.playerKart.x,
+      this.playerKart.y,
     )
 
     this.syncCameraToKart()
@@ -101,12 +133,14 @@ export class RaceScene extends Phaser.Scene {
     )
 
     this.mode7Renderer.render(this.cameraState)
+    this.updateHud()
   }
 
   update(_time: number, delta: number) {
     if (
       !this.mode7Renderer ||
       !this.playerKart ||
+      !this.trackSurfaceMap ||
       !this.cursors ||
       !this.wasd
     ) {
@@ -117,6 +151,11 @@ export class RaceScene extends Phaser.Scene {
     const steerLeft = this.cursors.left.isDown || this.wasd.left.isDown
     const steerRight = this.cursors.right.isDown || this.wasd.right.isDown
 
+    this.currentSurface = this.trackSurfaceMap.sample(
+      this.playerKart.x,
+      this.playerKart.y,
+    )
+
     this.playerKart.update(
       {
         accelerate: this.cursors.up.isDown || this.wasd.up.isDown,
@@ -125,6 +164,7 @@ export class RaceScene extends Phaser.Scene {
         steerRight,
       },
       deltaSeconds,
+      SURFACE_HANDLING[this.currentSurface],
     )
 
     this.syncCameraToKart()
@@ -137,10 +177,7 @@ export class RaceScene extends Phaser.Scene {
       steerDirection = 1
     }
 
-    this.racerSprite?.update(
-      steerDirection,
-      Math.min(1, Math.abs(this.playerKart.speedRatio)),
-    )
+    this.racerSprite?.update(steerDirection, deltaSeconds)
     this.updateHud()
     this.mode7Renderer.render(this.cameraState)
   }
@@ -168,7 +205,7 @@ export class RaceScene extends Phaser.Scene {
 
   private createHud() {
     this.add
-      .text(20, 18, 'RETRO KART // RACER TEST', {
+      .text(20, 18, 'RETRO KART // SURFACE TEST', {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: '#ffffff',
@@ -207,6 +244,17 @@ export class RaceScene extends Phaser.Scene {
       })
       .setDepth(30)
 
+    this.surfaceText = this.add
+      .text(GAME_WIDTH - 20, GAME_HEIGHT - 44, 'ROAD', {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(1, 0)
+      .setDepth(30)
+
     this.add
       .image(GAME_WIDTH - 18, 18, TRACK_TEXTURE_KEY)
       .setOrigin(1, 0)
@@ -216,7 +264,7 @@ export class RaceScene extends Phaser.Scene {
   }
 
   private updateHud() {
-    if (!this.speedText || !this.playerKart) {
+    if (!this.speedText || !this.surfaceText || !this.playerKart) {
       return
     }
 
@@ -226,6 +274,15 @@ export class RaceScene extends Phaser.Scene {
     this.speedText.setText(
       `SPEED ${direction}${speedPercent.toString().padStart(3, '0')}`,
     )
+
+    const surfaceLabel =
+      this.currentSurface === 'road'
+        ? 'ROAD'
+        : this.currentSurface === 'offRoad'
+          ? 'OFF-ROAD'
+          : 'OUTSIDE'
+
+    this.surfaceText.setText(surfaceLabel)
   }
 
   private syncCameraToKart() {
