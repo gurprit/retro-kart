@@ -30,7 +30,14 @@ export class RacerSpriteView {
       .setDepth(20)
 
     this.baseFrameIndex = this.findInitialFrameIndex()
-    this.applyFrame(this.baseFrameIndex)
+
+    if (this.frames.length === 0) {
+      this.sprite
+        .setDisplaySize(220, 160)
+        .setAlpha(0.9)
+    } else {
+      this.applyFrame(this.baseFrameIndex)
+    }
   }
 
   get frameCount() {
@@ -96,11 +103,35 @@ export class RacerSpriteView {
       canvas.height,
     ).data
 
+    const background = {
+      r: pixels[0],
+      g: pixels[1],
+      b: pixels[2],
+      a: pixels[3],
+    }
+
+    const isOccupied = (x: number, y: number) => {
+      const index = (y * canvas.width + x) * 4
+      const alpha = pixels[index + 3]
+
+      if (alpha <= 16) {
+        return false
+      }
+
+      const colourDistance =
+        Math.abs(pixels[index] - background.r) +
+        Math.abs(pixels[index + 1] - background.g) +
+        Math.abs(pixels[index + 2] - background.b) +
+        Math.abs(alpha - background.a)
+
+      return colourDistance > 24
+    }
+
     const occupiedRows = new Array<boolean>(canvas.height).fill(false)
 
     for (let y = 0; y < canvas.height; y += 1) {
       for (let x = 0; x < canvas.width; x += 1) {
-        if (pixels[(y * canvas.width + x) * 4 + 3] > 16) {
+        if (isOccupied(x, y)) {
           occupiedRows[y] = true
           break
         }
@@ -128,7 +159,7 @@ export class RacerSpriteView {
 
       for (let x = 0; x < canvas.width; x += 1) {
         for (let y = band.start; y <= band.end; y += 1) {
-          if (pixels[(y * canvas.width + x) * 4 + 3] > 16) {
+          if (isOccupied(x, y)) {
             occupiedColumns[x] = true
             break
           }
@@ -146,7 +177,7 @@ export class RacerSpriteView {
           const width = x - columnStart
           const height = band.end - band.start + 1
 
-          if (width >= 12 && height >= 12 && width <= 96 && height <= 96) {
+          if (width >= 12 && height >= 12 && width <= 100 && height <= 100) {
             frames.push({
               x: columnStart,
               y: band.start,
@@ -190,7 +221,6 @@ export class RacerSpriteView {
     const frame = this.frames[index]
 
     if (!frame) {
-      this.sprite.setVisible(false)
       return
     }
 
@@ -198,7 +228,11 @@ export class RacerSpriteView {
     this.sprite.setCrop(frame.x, frame.y, frame.width, frame.height)
 
     const targetHeight = 96
+    const sourceTexture = this.scene.textures.get(this.textureKey)
+    const sourceImage = sourceTexture.getSourceImage() as { width: number; height: number }
     const scale = targetHeight / frame.height
-    this.sprite.setDisplaySize(frame.width * scale, targetHeight)
+
+    this.sprite.setScale(scale)
+    this.sprite.setDisplayOrigin(sourceImage.width / 2, sourceImage.height)
   }
 }
