@@ -257,8 +257,10 @@ export class RaceScene extends Phaser.Scene {
       return
     }
 
+    const source = this.racerSprite.currentSourceIndex
+
     this.frameText.setText(
-      `FRAME ${this.racerSprite.currentFrameIndex + 1}/${this.racerSprite.frameCount}`,
+      `FRAME ${this.racerSprite.currentFrameIndex + 1}/${this.racerSprite.frameCount}  SRC ${source}`,
     )
   }
 
