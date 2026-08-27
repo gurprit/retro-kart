@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 
-export type TrackSurface = 'road' | 'offRoad' | 'void'
+export type TrackSurface = 'road' | 'offRoad' | 'barrier' | 'void'
 
 type Colour = {
   r: number
@@ -47,22 +47,43 @@ export class TrackSurfaceMap {
       return 'void'
     }
 
-    // Mario Circuit's drivable tarmac is deliberately neutral grey. Keep the
-    // classifier local to this temporary prototype asset so the gameplay model
-    // can later consume authored surface data without knowing anything about
-    // Nintendo palette values.
     const maxChannel = Math.max(pixel.r, pixel.g, pixel.b)
     const minChannel = Math.min(pixel.r, pixel.g, pixel.b)
     const saturation = maxChannel - minChannel
     const brightness = (pixel.r + pixel.g + pixel.b) / 3
 
+    // Temporary palette-aware collision mask for Mario Circuit 1. The black
+    // exterior and vivid red/blue/yellow edge blocks are solid. Keeping this
+    // logic isolated here lets us replace it later with authored collision data.
+    const looksLikeVoid = pixel.a <= 16 || brightness < 28
+
+    if (looksLikeVoid) {
+      return 'barrier'
+    }
+
+    const redBarrier =
+      pixel.r > 150 && pixel.r > pixel.g * 1.45 && pixel.r > pixel.b * 1.45
+    const blueBarrier =
+      pixel.b > 130 && pixel.b > pixel.r * 1.35 && pixel.b > pixel.g * 1.25
+    const yellowBarrier =
+      pixel.r > 150 && pixel.g > 125 && pixel.b < 90 && saturation > 70
+
+    if (redBarrier || blueBarrier || yellowBarrier) {
+      return 'barrier'
+    }
+
+    // Mario Circuit's drivable tarmac is deliberately neutral grey. Keep the
+    // classifier local to this temporary prototype asset so the gameplay model
+    // can later consume authored surface data without knowing palette values.
     const looksLikeTarmac =
-      pixel.a > 16 &&
-      saturation < 24 &&
-      brightness >= 65 &&
-      brightness <= 175
+      saturation < 24 && brightness >= 65 && brightness <= 175
 
     return looksLikeTarmac ? 'road' : 'offRoad'
+  }
+
+  isSolid(x: number, y: number) {
+    const surface = this.sample(x, y)
+    return surface === 'barrier' || surface === 'void'
   }
 
   private getPixel(x: number, y: number): Colour | undefined {
