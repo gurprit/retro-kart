@@ -8,16 +8,19 @@ type SpriteFrame = {
 const CELL_WIDTH = 32
 const CELL_HEIGHT = 32
 const COLUMNS = 11
-const ROWS = 5
-const TARGET_HEIGHT = 96
+const TARGET_HEIGHT = 82
 const BACKGROUND_TOLERANCE = 36
-const MIN_FOREGROUND_PIXELS = 28
+
+const FRAME_SOURCES = {
+  hardTurn: 5,
+  gentleTurn: 7,
+  neutral: 11,
+} as const
 
 export class RacerSpriteView {
   private readonly scene: Phaser.Scene
   private readonly sprite: Phaser.GameObjects.Image
-  private readonly frames: SpriteFrame[]
-  private baseFrameIndex = 0
+  private readonly frames = new Map<number, SpriteFrame>()
 
   constructor(
     scene: Phaser.Scene,
@@ -26,60 +29,32 @@ export class RacerSpriteView {
     y: number,
   ) {
     this.scene = scene
-    this.frames = this.createPrototypeFrames(textureKey)
+    this.createMappedFrames(textureKey)
 
-    const initialTextureKey = this.frames[0]?.textureKey ?? textureKey
+    const neutral = this.frames.get(FRAME_SOURCES.neutral)
 
     this.sprite = scene.add
-      .image(x, y, initialTextureKey)
+      .image(x, y, neutral?.textureKey ?? textureKey)
       .setOrigin(0.5, 1)
       .setDepth(20)
-
-    this.applyFrame(this.baseFrameIndex)
+      .setDisplaySize(TARGET_HEIGHT, TARGET_HEIGHT)
   }
 
-  get frameCount() {
-    return this.frames.length
-  }
-
-  get currentFrameIndex() {
-    return this.baseFrameIndex
-  }
-
-  get currentSourceIndex() {
-    return this.frames[this.baseFrameIndex]?.sourceIndex ?? -1
-  }
-
-  cycleFrame(direction: number) {
-    if (this.frames.length === 0) {
+  update(steerDirection: number, speedRatio: number) {
+    if (steerDirection === 0) {
+      this.applyFrame(FRAME_SOURCES.neutral, false)
       return
     }
 
-    this.baseFrameIndex = Phaser.Math.Wrap(
-      this.baseFrameIndex + direction,
-      0,
-      this.frames.length,
-    )
+    const turnFrame =
+      speedRatio >= 0.65
+        ? FRAME_SOURCES.hardTurn
+        : FRAME_SOURCES.gentleTurn
 
-    this.applyFrame(this.baseFrameIndex)
+    this.applyFrame(turnFrame, steerDirection > 0)
   }
 
-  update(steerDirection: number) {
-    if (this.frames.length === 0) {
-      return
-    }
-
-    const offset = steerDirection < 0 ? -1 : steerDirection > 0 ? 1 : 0
-    const frameIndex = Phaser.Math.Wrap(
-      this.baseFrameIndex + offset,
-      0,
-      this.frames.length,
-    )
-
-    this.applyFrame(frameIndex)
-  }
-
-  private createPrototypeFrames(textureKey: string) {
+  private createMappedFrames(textureKey: string) {
     const sourceTexture = this.scene.textures.get(textureKey)
     const sourceImage = sourceTexture.getSourceImage() as CanvasImageSource & {
       width: number
@@ -95,63 +70,52 @@ export class RacerSpriteView {
     })
 
     if (!sourceContext) {
-      return []
+      return
     }
 
     sourceContext.imageSmoothingEnabled = false
     sourceContext.drawImage(sourceImage, 0, 0)
 
-    const frames: SpriteFrame[] = []
+    const sourceIndices = [
+      FRAME_SOURCES.hardTurn,
+      FRAME_SOURCES.gentleTurn,
+      FRAME_SOURCES.neutral,
+    ]
 
-    for (let row = 0; row < ROWS; row += 1) {
-      for (let column = 0; column < COLUMNS; column += 1) {
-        const sourceIndex = row * COLUMNS + column
-        const x = column * CELL_WIDTH
-        const y = row * CELL_HEIGHT
+    for (const sourceIndex of sourceIndices) {
+      const column = sourceIndex % COLUMNS
+      const row = Math.floor(sourceIndex / COLUMNS)
+      const x = column * CELL_WIDTH
+      const y = row * CELL_HEIGHT
 
-        if (
-          x + CELL_WIDTH > sourceCanvas.width ||
-          y + CELL_HEIGHT > sourceCanvas.height
-        ) {
-          continue
-        }
+      const imageData = sourceContext.getImageData(
+        x,
+        y,
+        CELL_WIDTH,
+        CELL_HEIGHT,
+      )
 
-        const imageData = sourceContext.getImageData(
-          x,
-          y,
-          CELL_WIDTH,
-          CELL_HEIGHT,
-        )
+      const cleaned = this.removeCellBackground(imageData)
+      const frameTextureKey = `prototype-racer-frame-${sourceIndex}`
+      const frameTexture = this.scene.textures.createCanvas(
+        frameTextureKey,
+        CELL_WIDTH,
+        CELL_HEIGHT,
+      )
 
-        const cleaned = this.removeCellBackground(imageData)
-
-        if (cleaned.foregroundPixels < MIN_FOREGROUND_PIXELS) {
-          continue
-        }
-
-        const frameTextureKey = `prototype-racer-frame-${sourceIndex}`
-        const frameTexture = this.scene.textures.createCanvas(
-          frameTextureKey,
-          CELL_WIDTH,
-          CELL_HEIGHT,
-        )
-
-        if (!frameTexture) {
-          continue
-        }
-
-        frameTexture.context.imageSmoothingEnabled = false
-        frameTexture.context.putImageData(cleaned.imageData, 0, 0)
-        frameTexture.refresh()
-
-        frames.push({
-          textureKey: frameTextureKey,
-          sourceIndex,
-        })
+      if (!frameTexture) {
+        continue
       }
-    }
 
-    return frames
+      frameTexture.context.imageSmoothingEnabled = false
+      frameTexture.context.putImageData(cleaned, 0, 0)
+      frameTexture.refresh()
+
+      this.frames.set(sourceIndex, {
+        textureKey: frameTextureKey,
+        sourceIndex,
+      })
+    }
   }
 
   private removeCellBackground(imageData: ImageData) {
@@ -180,8 +144,6 @@ export class RacerSpriteView {
       background = { r, g, b }
     }
 
-    let foregroundPixels = 0
-
     for (let index = 0; index < pixels.length; index += 4) {
       if (pixels[index + 3] === 0) {
         continue
@@ -194,16 +156,14 @@ export class RacerSpriteView {
 
       if (distance <= BACKGROUND_TOLERANCE) {
         pixels[index + 3] = 0
-      } else {
-        foregroundPixels += 1
       }
     }
 
-    return { imageData, foregroundPixels }
+    return imageData
   }
 
-  private applyFrame(index: number) {
-    const frame = this.frames[index]
+  private applyFrame(sourceIndex: number, flipX: boolean) {
+    const frame = this.frames.get(sourceIndex)
 
     if (!frame) {
       this.sprite.setVisible(false)
@@ -213,6 +173,7 @@ export class RacerSpriteView {
     this.sprite
       .setVisible(true)
       .setTexture(frame.textureKey)
+      .setFlipX(flipX)
       .setDisplaySize(TARGET_HEIGHT, TARGET_HEIGHT)
   }
 }
