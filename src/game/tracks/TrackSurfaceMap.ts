@@ -9,6 +9,9 @@ type Colour = {
   a: number
 }
 
+const SOLID_RADIUS = 3
+const SOLID_DENSITY = 0.72
+
 export class TrackSurfaceMap {
   readonly width: number
   readonly height: number
@@ -47,43 +50,102 @@ export class TrackSurfaceMap {
       return 'void'
     }
 
+    if (this.isBarrierColour(pixel)) {
+      return 'barrier'
+    }
+
     const maxChannel = Math.max(pixel.r, pixel.g, pixel.b)
     const minChannel = Math.min(pixel.r, pixel.g, pixel.b)
     const saturation = maxChannel - minChannel
     const brightness = (pixel.r + pixel.g + pixel.b) / 3
 
-    // Temporary palette-aware collision mask for Mario Circuit 1. The black
-    // exterior and vivid red/blue/yellow edge blocks are solid. Keeping this
-    // logic isolated here lets us replace it later with authored collision data.
-    const looksLikeVoid = pixel.a <= 16 || brightness < 28
-
-    if (looksLikeVoid) {
-      return 'barrier'
-    }
-
-    const redBarrier =
-      pixel.r > 150 && pixel.r > pixel.g * 1.45 && pixel.r > pixel.b * 1.45
-    const blueBarrier =
-      pixel.b > 130 && pixel.b > pixel.r * 1.35 && pixel.b > pixel.g * 1.25
-    const yellowBarrier =
-      pixel.r > 150 && pixel.g > 125 && pixel.b < 90 && saturation > 70
-
-    if (redBarrier || blueBarrier || yellowBarrier) {
-      return 'barrier'
-    }
-
-    // Mario Circuit's drivable tarmac is deliberately neutral grey. Keep the
-    // classifier local to this temporary prototype asset so the gameplay model
-    // can later consume authored surface data without knowing palette values.
     const looksLikeTarmac =
-      saturation < 24 && brightness >= 65 && brightness <= 175
+      pixel.a > 16 &&
+      saturation < 24 &&
+      brightness >= 65 &&
+      brightness <= 175
 
     return looksLikeTarmac ? 'road' : 'offRoad'
   }
 
-  isSolid(x: number, y: number) {
-    const surface = this.sample(x, y)
-    return surface === 'barrier' || surface === 'void'
+  collidesAlongSegment(fromX: number, fromY: number, toX: number, toY: number) {
+    const dx = toX - fromX
+    const dy = toY - fromY
+    const distance = Math.hypot(dx, dy)
+    const steps = Math.max(1, Math.ceil(distance))
+
+    for (let step = 1; step <= steps; step += 1) {
+      const progress = step / steps
+      const x = fromX + dx * progress
+      const y = fromY + dy * progress
+
+      if (this.hasSolidBarrierAt(x, y)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  private hasSolidBarrierAt(x: number, y: number) {
+    let barrierPixels = 0
+    let sampledPixels = 0
+
+    for (let offsetY = -SOLID_RADIUS; offsetY <= SOLID_RADIUS; offsetY += 1) {
+      for (let offsetX = -SOLID_RADIUS; offsetX <= SOLID_RADIUS; offsetX += 1) {
+        const pixel = this.getPixel(
+          Math.floor(x + offsetX),
+          Math.floor(y + offsetY),
+        )
+
+        if (!pixel) {
+          continue
+        }
+
+        sampledPixels += 1
+
+        if (this.isBarrierColour(pixel)) {
+          barrierPixels += 1
+        }
+      }
+    }
+
+    if (sampledPixels === 0) {
+      return false
+    }
+
+    // The coloured block barriers are large, densely coloured regions. The
+    // red/white kerbs contain lots of white between their red stripes, so they
+    // deliberately stay non-solid and continue to behave like rough bumps.
+    return barrierPixels / sampledPixels >= SOLID_DENSITY
+  }
+
+  private isBarrierColour(pixel: Colour) {
+    if (pixel.a <= 16) {
+      return false
+    }
+
+    const red =
+      pixel.r >= 185 &&
+      pixel.g <= 85 &&
+      pixel.b <= 85
+
+    const blue =
+      pixel.b >= 150 &&
+      pixel.r <= 100 &&
+      pixel.g <= 135
+
+    const yellow =
+      pixel.r >= 180 &&
+      pixel.g >= 155 &&
+      pixel.b <= 95
+
+    const green =
+      pixel.g >= 135 &&
+      pixel.r <= 105 &&
+      pixel.b <= 105
+
+    return red || blue || yellow || green
   }
 
   private getPixel(x: number, y: number): Colour | undefined {
