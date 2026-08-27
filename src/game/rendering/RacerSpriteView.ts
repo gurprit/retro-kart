@@ -1,28 +1,19 @@
 import Phaser from 'phaser'
 
-type SpriteFrame = {
-  textureKey: string
-  sourceIndex: number
-}
-
 const CELL_WIDTH = 32
 const CELL_HEIGHT = 32
 const COLUMNS = 11
 const TARGET_HEIGHT = 82
 const BACKGROUND_TOLERANCE = 36
-const STEER_RELEASE_DELAY = 0.08
-
-const FRAME_SOURCES = {
-  turn: 7,
-  neutral: 11,
-} as const
+const NEUTRAL_SOURCE_INDEX = 11
+const STEER_LEAN = 0.06
+const STEER_SHIFT = 8
 
 export class RacerSpriteView {
   private readonly scene: Phaser.Scene
   private readonly sprite: Phaser.GameObjects.Image
-  private readonly frames = new Map<number, SpriteFrame>()
-  private displayedSteerDirection = 0
-  private steerReleaseTimer = 0
+  private readonly baseX: number
+  private readonly neutralTextureKey: string
 
   constructor(
     scene: Phaser.Scene,
@@ -31,42 +22,29 @@ export class RacerSpriteView {
     y: number,
   ) {
     this.scene = scene
-    this.createMappedFrames(textureKey)
-
-    const neutral = this.frames.get(FRAME_SOURCES.neutral)
+    this.baseX = x
+    this.neutralTextureKey = this.createNeutralFrame(textureKey)
 
     this.sprite = scene.add
-      .image(x, y, neutral?.textureKey ?? textureKey)
+      .image(x, y, this.neutralTextureKey)
       .setOrigin(0.5, 1)
       .setDepth(20)
       .setDisplaySize(TARGET_HEIGHT, TARGET_HEIGHT)
   }
 
   update(steerDirection: number, deltaSeconds: number) {
-    if (steerDirection !== 0) {
-      this.displayedSteerDirection = steerDirection
-      this.steerReleaseTimer = STEER_RELEASE_DELAY
-    } else if (this.steerReleaseTimer > 0) {
-      this.steerReleaseTimer = Math.max(
-        0,
-        this.steerReleaseTimer - deltaSeconds,
-      )
-    } else {
-      this.displayedSteerDirection = 0
-    }
+    void deltaSeconds
 
-    if (this.displayedSteerDirection === 0) {
-      this.applyFrame(FRAME_SOURCES.neutral, false)
-      return
-    }
+    const clampedSteer = Phaser.Math.Clamp(steerDirection, -1, 1)
 
-    this.applyFrame(
-      FRAME_SOURCES.turn,
-      this.displayedSteerDirection > 0,
-    )
+    this.sprite
+      .setTexture(this.neutralTextureKey)
+      .setFlipX(false)
+      .setRotation(clampedSteer * STEER_LEAN)
+      .setX(this.baseX + clampedSteer * STEER_SHIFT)
   }
 
-  private createMappedFrames(textureKey: string) {
+  private createNeutralFrame(textureKey: string) {
     const sourceTexture = this.scene.textures.get(textureKey)
     const sourceImage = sourceTexture.getSourceImage() as CanvasImageSource & {
       width: number
@@ -82,48 +60,41 @@ export class RacerSpriteView {
     })
 
     if (!sourceContext) {
-      return
+      return textureKey
     }
 
     sourceContext.imageSmoothingEnabled = false
     sourceContext.drawImage(sourceImage, 0, 0)
 
-    const sourceIndices = [FRAME_SOURCES.turn, FRAME_SOURCES.neutral]
+    const column = NEUTRAL_SOURCE_INDEX % COLUMNS
+    const row = Math.floor(NEUTRAL_SOURCE_INDEX / COLUMNS)
+    const x = column * CELL_WIDTH
+    const y = row * CELL_HEIGHT
 
-    for (const sourceIndex of sourceIndices) {
-      const column = sourceIndex % COLUMNS
-      const row = Math.floor(sourceIndex / COLUMNS)
-      const x = column * CELL_WIDTH
-      const y = row * CELL_HEIGHT
+    const imageData = sourceContext.getImageData(
+      x,
+      y,
+      CELL_WIDTH,
+      CELL_HEIGHT,
+    )
 
-      const imageData = sourceContext.getImageData(
-        x,
-        y,
-        CELL_WIDTH,
-        CELL_HEIGHT,
-      )
+    const cleaned = this.removeCellBackground(imageData)
+    const frameTextureKey = 'prototype-racer-neutral'
+    const frameTexture = this.scene.textures.createCanvas(
+      frameTextureKey,
+      CELL_WIDTH,
+      CELL_HEIGHT,
+    )
 
-      const cleaned = this.removeCellBackground(imageData)
-      const frameTextureKey = `prototype-racer-frame-${sourceIndex}`
-      const frameTexture = this.scene.textures.createCanvas(
-        frameTextureKey,
-        CELL_WIDTH,
-        CELL_HEIGHT,
-      )
-
-      if (!frameTexture) {
-        continue
-      }
-
-      frameTexture.context.imageSmoothingEnabled = false
-      frameTexture.context.putImageData(cleaned, 0, 0)
-      frameTexture.refresh()
-
-      this.frames.set(sourceIndex, {
-        textureKey: frameTextureKey,
-        sourceIndex,
-      })
+    if (!frameTexture) {
+      return textureKey
     }
+
+    frameTexture.context.imageSmoothingEnabled = false
+    frameTexture.context.putImageData(cleaned, 0, 0)
+    frameTexture.refresh()
+
+    return frameTextureKey
   }
 
   private removeCellBackground(imageData: ImageData) {
@@ -168,20 +139,5 @@ export class RacerSpriteView {
     }
 
     return imageData
-  }
-
-  private applyFrame(sourceIndex: number, flipX: boolean) {
-    const frame = this.frames.get(sourceIndex)
-
-    if (!frame) {
-      this.sprite.setVisible(false)
-      return
-    }
-
-    this.sprite
-      .setVisible(true)
-      .setTexture(frame.textureKey)
-      .setFlipX(flipX)
-      .setDisplaySize(TARGET_HEIGHT, TARGET_HEIGHT)
   }
 }
