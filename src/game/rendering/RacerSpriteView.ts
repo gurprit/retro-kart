@@ -5,10 +5,8 @@ const FRAME_HEIGHT = 32
 const FRAME_COUNT = 12
 const FRAME_GAP = 1
 const TARGET_HEIGHT = 82
+const BACKGROUND_TOLERANCE = 20
 
-// Cleaned Mario sheet is a single directional strip:
-// rear -> rear quarter -> side -> front quarter -> front.
-// The first six frames are enough for driving; the whole strip is used for spins.
 const DRIVING_FRAMES = {
   neutral: 0,
   slightTurn: 1,
@@ -25,7 +23,6 @@ const TURN_FRAME_THRESHOLDS = {
 const OFF_ROAD_BOUNCE_HEIGHT = 4
 const OFF_ROAD_BOUNCE_BASE_RATE = 18
 const OFF_ROAD_BOUNCE_SPEED_RATE = 18
-
 const SPIN_FRAME_TIME = 0.05
 const DEFAULT_SPIN_LOOPS = 2
 
@@ -41,12 +38,7 @@ export class RacerSpriteView {
   private spinFrameTimer = 0
   private spinFrameIndex = 0
 
-  constructor(
-    scene: Phaser.Scene,
-    textureKey: string,
-    x: number,
-    y: number,
-  ) {
+  constructor(scene: Phaser.Scene, textureKey: string, x: number, y: number) {
     this.scene = scene
     this.baseX = x
     this.baseY = y
@@ -78,9 +70,7 @@ export class RacerSpriteView {
     let bounceOffset = 0
 
     if (isOffRoad && clampedSpeed > 0.03 && this.spinTimer <= 0) {
-      const bounceRate =
-        OFF_ROAD_BOUNCE_BASE_RATE + OFF_ROAD_BOUNCE_SPEED_RATE * clampedSpeed
-
+      const bounceRate = OFF_ROAD_BOUNCE_BASE_RATE + OFF_ROAD_BOUNCE_SPEED_RATE * clampedSpeed
       this.bouncePhase += bounceRate * deltaSeconds
       bounceOffset =
         Math.abs(Math.sin(this.bouncePhase)) *
@@ -97,11 +87,8 @@ export class RacerSpriteView {
       .setDisplaySize(TARGET_HEIGHT, TARGET_HEIGHT)
   }
 
-  /** Reusable for barrier hits and, later, weapon/item impacts. */
   triggerSpin(loops = DEFAULT_SPIN_LOOPS) {
-    if (this.frames.length < 2) {
-      return
-    }
+    if (this.frames.length < 2) return
 
     this.spinFrameIndex = 0
     this.spinFrameTimer = 0
@@ -112,35 +99,21 @@ export class RacerSpriteView {
     return this.spinTimer > 0
   }
 
-  private updateDrivingFrame(
-    steerDirection: number,
-    speedRatio: number,
-    isPowersliding: boolean,
-  ) {
-    if (this.frames.length === 0) {
-      return
-    }
+  private updateDrivingFrame(steerDirection: number, speedRatio: number, isPowersliding: boolean) {
+    if (this.frames.length === 0) return
 
     let frameIndex: number = DRIVING_FRAMES.neutral
 
     if (steerDirection !== 0) {
-      if (isPowersliding) {
-        frameIndex = DRIVING_FRAMES.powerslide
-      } else if (speedRatio >= TURN_FRAME_THRESHOLDS.hard) {
-        frameIndex = DRIVING_FRAMES.hardTurn
-      } else if (speedRatio >= TURN_FRAME_THRESHOLDS.medium) {
-        frameIndex = DRIVING_FRAMES.mediumTurn
-      } else {
-        frameIndex = DRIVING_FRAMES.slightTurn
-      }
+      if (isPowersliding) frameIndex = DRIVING_FRAMES.powerslide
+      else if (speedRatio >= TURN_FRAME_THRESHOLDS.hard) frameIndex = DRIVING_FRAMES.hardTurn
+      else if (speedRatio >= TURN_FRAME_THRESHOLDS.medium) frameIndex = DRIVING_FRAMES.mediumTurn
+      else frameIndex = DRIVING_FRAMES.slightTurn
     }
-
-    const textureKey = this.frames[Math.min(frameIndex, this.frames.length - 1)]
 
     this.sprite
       .setVisible(true)
-      .setTexture(textureKey)
-      // The strip contains one turn direction; mirror it for the opposite turn.
+      .setTexture(this.frames[Math.min(frameIndex, this.frames.length - 1)])
       .setFlipX(steerDirection < 0)
   }
 
@@ -154,13 +127,7 @@ export class RacerSpriteView {
     }
 
     const textureKey = this.frames[this.spinFrameIndex]
-
-    if (textureKey) {
-      this.sprite
-        .setVisible(true)
-        .setTexture(textureKey)
-        .setFlipX(false)
-    }
+    if (textureKey) this.sprite.setVisible(true).setTexture(textureKey).setFlipX(false)
   }
 
   private createStripFrames(textureKey: string) {
@@ -170,9 +137,6 @@ export class RacerSpriteView {
       height: number
     }
 
-    // The uploaded cleaned sheet is 395x32: twelve 32px poses separated by 1px.
-    // Explicit slicing keeps every pose anchored to the same 32x32 canvas and
-    // removes the wobble caused by auto-cropping each sprite to a different box.
     const availableFrames = Math.min(
       FRAME_COUNT,
       Math.floor((sourceImage.width + FRAME_GAP) / (FRAME_WIDTH + FRAME_GAP)),
@@ -181,12 +145,8 @@ export class RacerSpriteView {
     const sourceCanvas = document.createElement('canvas')
     sourceCanvas.width = sourceImage.width
     sourceCanvas.height = sourceImage.height
-
-    const sourceContext = sourceCanvas.getContext('2d')
-
-    if (!sourceContext) {
-      return
-    }
+    const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true })
+    if (!sourceContext) return
 
     sourceContext.imageSmoothingEnabled = false
     sourceContext.drawImage(sourceImage, 0, 0)
@@ -196,33 +156,45 @@ export class RacerSpriteView {
       const textureKeyForFrame = `prototype-racer-strip-${index}`
 
       if (!this.scene.textures.exists(textureKeyForFrame)) {
-        const texture = this.scene.textures.createCanvas(
-          textureKeyForFrame,
-          FRAME_WIDTH,
-          FRAME_HEIGHT,
-        )
+        const imageData = sourceContext.getImageData(x, 0, FRAME_WIDTH, FRAME_HEIGHT)
+        this.removeFrameBackground(imageData)
 
-        if (!texture) {
-          continue
-        }
+        const texture = this.scene.textures.createCanvas(textureKeyForFrame, FRAME_WIDTH, FRAME_HEIGHT)
+        if (!texture) continue
 
         texture.context.imageSmoothingEnabled = false
         texture.context.clearRect(0, 0, FRAME_WIDTH, FRAME_HEIGHT)
-        texture.context.drawImage(
-          sourceCanvas,
-          x,
-          0,
-          FRAME_WIDTH,
-          FRAME_HEIGHT,
-          0,
-          0,
-          FRAME_WIDTH,
-          FRAME_HEIGHT,
-        )
+        texture.context.putImageData(imageData, 0, 0)
         texture.refresh()
       }
 
       this.frames.push(textureKeyForFrame)
     }
+  }
+
+  private removeFrameBackground(imageData: ImageData) {
+    const pixels = imageData.data
+    const cornerColours = [
+      this.pixelAt(pixels, 0, 0),
+      this.pixelAt(pixels, FRAME_WIDTH - 1, 0),
+      this.pixelAt(pixels, 0, FRAME_HEIGHT - 1),
+      this.pixelAt(pixels, FRAME_WIDTH - 1, FRAME_HEIGHT - 1),
+    ]
+
+    for (let offset = 0; offset < pixels.length; offset += 4) {
+      const matchesBackground = cornerColours.some(({ r, g, b }) =>
+        Math.abs(pixels[offset] - r) +
+          Math.abs(pixels[offset + 1] - g) +
+          Math.abs(pixels[offset + 2] - b) <=
+        BACKGROUND_TOLERANCE,
+      )
+
+      if (matchesBackground) pixels[offset + 3] = 0
+    }
+  }
+
+  private pixelAt(pixels: Uint8ClampedArray, x: number, y: number) {
+    const offset = (y * FRAME_WIDTH + x) * 4
+    return { r: pixels[offset], g: pixels[offset + 1], b: pixels[offset + 2] }
   }
 }
