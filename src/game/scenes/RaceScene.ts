@@ -5,6 +5,7 @@ import {
   Mode7Renderer,
   type Mode7CameraState,
 } from '../rendering/Mode7Renderer'
+import { ParallaxBackground } from '../rendering/ParallaxBackground'
 import { RacerSpriteView } from '../rendering/RacerSpriteView'
 import {
   TrackSurfaceMap,
@@ -16,7 +17,10 @@ const GAME_HEIGHT = 600
 const HORIZON_Y = 250
 const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
 const TRACK_TEXTURE_KEY = 'prototype-track'
+const COLLISION_TEXTURE_KEY = 'prototype-collision'
 const RACER_TEXTURE_KEY = 'prototype-racer'
+const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
+const NEAR_BACKGROUND_TEXTURE_KEY = 'prototype-near-background'
 
 const SURFACE_HANDLING = {
   road: {
@@ -43,6 +47,7 @@ const SURFACE_HANDLING = {
 
 export class RaceScene extends Phaser.Scene {
   private mode7Renderer?: Mode7Renderer
+  private parallaxBackground?: ParallaxBackground
   private playerKart?: PlayerKart
   private racerSprite?: RacerSpriteView
   private skidEffects?: SkidEffects
@@ -76,7 +81,18 @@ export class RaceScene extends Phaser.Scene {
       TRACK_TEXTURE_KEY,
       '/assets/tracks/Mario Circuit 1.png',
     )
-
+    this.load.image(
+      COLLISION_TEXTURE_KEY,
+      '/assets/tracks/Mario Circuit 1 - Collision.png',
+    )
+    this.load.image(
+      FAR_BACKGROUND_TEXTURE_KEY,
+      '/assets/backgrounds/Mario Circuit 1 - Far Background.png',
+    )
+    this.load.image(
+      NEAR_BACKGROUND_TEXTURE_KEY,
+      '/assets/backgrounds/Mario Circuit 1 - Near Background.png',
+    )
     this.load.image(
       RACER_TEXTURE_KEY,
       '/assets/characters/Racers - Mario.png',
@@ -94,13 +110,21 @@ export class RaceScene extends Phaser.Scene {
       0x67b7e8,
     )
 
+    this.parallaxBackground = new ParallaxBackground(
+      this,
+      FAR_BACKGROUND_TEXTURE_KEY,
+      NEAR_BACKGROUND_TEXTURE_KEY,
+      GAME_WIDTH,
+      HORIZON_Y,
+    )
+
     this.add.rectangle(
       GAME_WIDTH / 2,
-      HORIZON_Y - 16,
+      HORIZON_Y - 8,
       GAME_WIDTH,
-      32,
+      16,
       0x4e8d47,
-    )
+    ).setDepth(4)
 
     this.mode7Renderer = new Mode7Renderer(
       this,
@@ -111,7 +135,11 @@ export class RaceScene extends Phaser.Scene {
       HORIZON_Y,
     )
 
-    this.trackSurfaceMap = new TrackSurfaceMap(this, TRACK_TEXTURE_KEY)
+    this.trackSurfaceMap = new TrackSurfaceMap(
+      this,
+      TRACK_TEXTURE_KEY,
+      COLLISION_TEXTURE_KEY,
+    )
 
     const worldScale = Math.min(
       this.mode7Renderer.sourceWidth,
@@ -147,6 +175,7 @@ export class RaceScene extends Phaser.Scene {
       GAME_HEIGHT - 42,
     )
 
+    this.parallaxBackground.update(this.cameraState.angle)
     this.mode7Renderer.render(this.cameraState)
     this.updateHud()
   }
@@ -197,8 +226,6 @@ export class RaceScene extends Phaser.Scene {
     )
 
     if (hitBarrier) {
-      // Collision is based on the full motion segment, so it works equally when
-      // travelling forwards or reversing and cannot tunnel through thin blocks.
       this.playerKart.applyCollision(previousX, previousY)
       this.currentSurface = this.trackSurfaceMap.sample(previousX, previousY)
     } else {
@@ -206,6 +233,7 @@ export class RaceScene extends Phaser.Scene {
     }
 
     this.syncCameraToKart()
+    this.parallaxBackground?.update(this.cameraState.angle)
 
     let steerDirection = 0
 
@@ -259,7 +287,7 @@ export class RaceScene extends Phaser.Scene {
 
   private createHud() {
     this.add
-      .text(20, 18, 'RETRO KART // COLLISION + POWERSLIDE TEST', {
+      .text(20, 18, 'RETRO KART // MASK + PARALLAX TEST', {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: '#ffffff',
