@@ -19,7 +19,7 @@ const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
 const TRACK_TEXTURE_KEY = 'prototype-track'
 const COLLISION_TEXTURE_KEY = 'prototype-collision'
 const RACER_TEXTURE_KEY = 'prototype-racer'
-const PARTICLE_SHEET_URL = '/assets/Particles.png'
+const PARTICLE_SHEET_URL = '/assets/effects/Particles.png'
 const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
 const NEAR_BACKGROUND_TEXTURE_KEY = 'prototype-near-background'
 
