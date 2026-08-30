@@ -22,6 +22,7 @@ const RACER_TEXTURE_KEY = 'prototype-racer'
 const PARTICLE_SHEET_URL = '/assets/effects/Particles.png'
 const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
 const NEAR_BACKGROUND_TEXTURE_KEY = 'prototype-near-background'
+const HARD_COLLISION_SPIN_SPEED = 0.48
 
 const SURFACE_HANDLING = {
   road: {
@@ -221,6 +222,7 @@ export class RaceScene extends Phaser.Scene {
 
     const nextX = this.playerKart.x
     const nextY = this.playerKart.y
+    const impactSpeedRatio = Math.abs(this.playerKart.speedRatio)
     const hitBarrier = this.trackSurfaceMap.collidesAlongSegment(
       previousX,
       previousY,
@@ -230,6 +232,14 @@ export class RaceScene extends Phaser.Scene {
 
     if (hitBarrier) {
       this.playerKart.applyCollision(previousX, previousY)
+
+      if (
+        impactSpeedRatio >= HARD_COLLISION_SPIN_SPEED &&
+        !this.racerSprite?.isSpinning
+      ) {
+        this.racerSprite?.triggerSpin()
+      }
+
       this.currentSurface = this.trackSurfaceMap.sample(previousX, previousY)
     } else {
       this.currentSurface = this.trackSurfaceMap.sample(nextX, nextY)
