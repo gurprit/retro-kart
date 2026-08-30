@@ -1,9 +1,11 @@
 import Phaser from 'phaser'
 
-const FAR_SCROLL_PER_TURN = 360
-const NEAR_SCROLL_PER_TURN = 640
-const FAR_BOTTOM_OFFSET = 52
-const NEAR_BOTTOM_OFFSET = 14
+const FAR_SCROLL_PER_TURN = 280
+const NEAR_SCROLL_PER_TURN = 620
+const FAR_SCALE = 0.82
+const NEAR_SCALE = 1
+const FAR_BOTTOM_OFFSET = 56
+const NEAR_BOTTOM_OFFSET = 8
 
 export class ParallaxBackground {
   private readonly farLayer: Phaser.GameObjects.TileSprite
@@ -21,37 +23,42 @@ export class ParallaxBackground {
     const farSource = farTexture.getSourceImage() as { width: number; height: number }
     const nearSource = nearTexture.getSourceImage() as { width: number; height: number }
 
-    // Keep each TileSprite exactly one source-image tall. A taller TileSprite
-    // repeats the texture vertically, which caused the duplicated mountain rows
-    // and dark separator bands seen in the previous build.
+    const farHeight = Math.max(1, Math.round(farSource.height * FAR_SCALE))
+    const nearHeight = Math.max(1, Math.round(nearSource.height * NEAR_SCALE))
+
+    // Treat the scenery like two planes receding along the z axis. The far
+    // mountains are smaller, higher and slower; the tree line is lower, larger
+    // and scrolls faster. Both remain one source-image tall so they only tile
+    // horizontally and cannot create repeated vertical bands.
     this.farLayer = scene.add
       .tileSprite(
         width / 2,
         horizonY - FAR_BOTTOM_OFFSET,
         width,
-        farSource.height,
+        farHeight,
         farTextureKey,
       )
       .setOrigin(0.5, 1)
-      .setDepth(2)
+      .setDepth(1)
 
     this.nearLayer = scene.add
       .tileSprite(
         width / 2,
         horizonY - NEAR_BOTTOM_OFFSET,
         width,
-        nearSource.height,
+        nearHeight,
         nearTextureKey,
       )
       .setOrigin(0.5, 1)
-      .setDepth(3)
+      .setDepth(2)
 
-    this.farLayer.setTileScale(1, 1)
-    this.nearLayer.setTileScale(1, 1)
+    this.farLayer.setTileScale(FAR_SCALE, FAR_SCALE)
+    this.nearLayer.setTileScale(NEAR_SCALE, NEAR_SCALE)
   }
 
   update(angle: number) {
     const turns = angle / (Math.PI * 2)
+
     this.farLayer.tilePositionX = turns * FAR_SCROLL_PER_TURN
     this.nearLayer.tilePositionX = turns * NEAR_SCROLL_PER_TURN
   }
