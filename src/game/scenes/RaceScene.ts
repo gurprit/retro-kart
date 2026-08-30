@@ -118,13 +118,15 @@ export class RaceScene extends Phaser.Scene {
       HORIZON_Y,
     )
 
-    this.add.rectangle(
-      GAME_WIDTH / 2,
-      HORIZON_Y - 8,
-      GAME_WIDTH,
-      16,
-      0x4e8d47,
-    ).setDepth(4)
+    this.add
+      .rectangle(
+        GAME_WIDTH / 2,
+        HORIZON_Y - 8,
+        GAME_WIDTH,
+        16,
+        0x4e8d47,
+      )
+      .setDepth(4)
 
     this.mode7Renderer = new Mode7Renderer(
       this,
@@ -387,12 +389,16 @@ export class RaceScene extends Phaser.Scene {
   }
 
   private syncCameraToKart() {
-    if (!this.playerKart) {
+    if (!this.playerKart || !this.mode7Renderer) {
       return
     }
 
-    this.cameraState.x = this.playerKart.x
-    this.cameraState.y = this.playerKart.y
+    const cameraOffset = this.mode7Renderer.groundContactDistance
+    const forwardX = Math.sin(this.playerKart.angle)
+    const forwardY = -Math.cos(this.playerKart.angle)
+
+    this.cameraState.x = this.playerKart.x - forwardX * cameraOffset
+    this.cameraState.y = this.playerKart.y - forwardY * cameraOffset
     this.cameraState.angle = this.playerKart.angle
   }
 }
