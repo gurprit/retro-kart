@@ -10,7 +10,7 @@ type ParticleFrame = {
 const CELL_SIZE = 16
 const EMIT_INTERVAL = 0.055
 const PARTICLE_LIFETIME = 0.34
-const BACKGROUND_TOLERANCE = 34
+const BACKGROUND_TOLERANCE = 42
 const MIN_VISIBLE_PIXELS = 5
 
 export class SkidEffects {
@@ -69,7 +69,7 @@ export class SkidEffects {
       console.warn(`Could not load particle sheet: ${url}`)
     }
 
-    image.src = `${url}?v=2`
+    image.src = `${url}?v=3`
   }
 
   private spawnDust(offsetX: number, intensity: number) {
@@ -84,7 +84,7 @@ export class SkidEffects {
       .setOrigin(0.5)
       .setDepth(19)
       .setAlpha(0.82)
-      .setScale(Phaser.Math.Linear(1.2, 1.9, intensity))
+      .setScale(Phaser.Math.Linear(1.15, 1.65, intensity))
 
     const driftX = Phaser.Math.Between(-12, 12)
     const driftY = Phaser.Math.Between(10, 20)
@@ -94,8 +94,8 @@ export class SkidEffects {
       x: particle.x + driftX,
       y: particle.y + driftY,
       alpha: 0,
-      scaleX: particle.scaleX * 1.45,
-      scaleY: particle.scaleY * 1.45,
+      scaleX: particle.scaleX * 1.4,
+      scaleY: particle.scaleY * 1.4,
       duration: PARTICLE_LIFETIME * 1000,
       ease: 'Quad.easeOut',
       onComplete: () => particle.destroy(),
@@ -115,7 +115,7 @@ export class SkidEffects {
       .setOrigin(0.5)
       .setDepth(21)
       .setAlpha(0.95)
-      .setScale(Phaser.Math.Linear(0.9, 1.3, intensity))
+      .setScale(Phaser.Math.Linear(0.85, 1.15, intensity))
 
     this.scene.tweens.add({
       targets: particle,
@@ -166,21 +166,17 @@ export class SkidEffects {
     }
 
     const dust = frames
-      .filter((frame) => frame.saturation < 90 && frame.area >= 10)
+      .filter((frame) => frame.saturation < 72 && frame.area >= 10)
       .sort((a, b) => b.area - a.area)
-      .slice(0, 10)
+      .slice(0, 8)
 
     const sparks = frames
-      .filter((frame) => frame.warmScore > 22 && frame.saturation > 55)
+      .filter((frame) => frame.warmScore > 28 && frame.saturation > 60)
       .sort((a, b) => b.warmScore - a.warmScore)
-      .slice(0, 8)
+      .slice(0, 6)
 
     this.dustFrames.push(...dust.map((frame) => frame.textureKey))
     this.sparkFrames.push(...sparks.map((frame) => frame.textureKey))
-
-    if (this.dustFrames.length === 0) {
-      this.dustFrames.push(...frames.slice(0, 8).map((frame) => frame.textureKey))
-    }
   }
 
   private createFrameFromCell(
@@ -199,29 +195,37 @@ export class SkidEffects {
 
     for (let index = 0; index < pixels.length; index += 4) {
       const alpha = pixels[index + 3]
+      const r = pixels[index]
+      const g = pixels[index + 1]
+      const b = pixels[index + 2]
 
       if (alpha <= 16) {
         continue
       }
 
       const distance =
-        Math.abs(pixels[index] - background.r) +
-        Math.abs(pixels[index + 1] - background.g) +
-        Math.abs(pixels[index + 2] - background.b)
+        Math.abs(r - background.r) +
+        Math.abs(g - background.g) +
+        Math.abs(b - background.b)
 
-      if (distance <= BACKGROUND_TOLERANCE) {
+      // The source sheet uses a strong blue/navy backing behind its sprites.
+      // Strip that family of colours explicitly so a particle can never carry
+      // a blue rectangular cell into the game.
+      const looksLikeSheetBlue = b >= 90 && b > r * 1.35 && b > g * 1.2
+
+      if (distance <= BACKGROUND_TOLERANCE || looksLikeSheetBlue) {
         continue
       }
 
-      cleaned.data[index] = pixels[index]
-      cleaned.data[index + 1] = pixels[index + 1]
-      cleaned.data[index + 2] = pixels[index + 2]
+      cleaned.data[index] = r
+      cleaned.data[index + 1] = g
+      cleaned.data[index + 2] = b
       cleaned.data[index + 3] = 255
 
       visiblePixels += 1
-      totalR += pixels[index]
-      totalG += pixels[index + 1]
-      totalB += pixels[index + 2]
+      totalR += r
+      totalG += g
+      totalB += b
     }
 
     if (visiblePixels < MIN_VISIBLE_PIXELS) {
