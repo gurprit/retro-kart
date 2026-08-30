@@ -55,7 +55,6 @@ export class RaceScene extends Phaser.Scene {
   private trackSurfaceMap?: TrackSurfaceMap
   private speedText?: Phaser.GameObjects.Text
   private surfaceText?: Phaser.GameObjects.Text
-  private stateText?: Phaser.GameObjects.Text
   private currentSurface: TrackSurface = 'road'
 
   private cameraState: Mode7CameraState = {
@@ -330,17 +329,6 @@ export class RaceScene extends Phaser.Scene {
       })
       .setDepth(30)
 
-    this.stateText = this.add
-      .text(GAME_WIDTH / 2, GAME_HEIGHT - 44, 'NORMAL', {
-        fontFamily: 'monospace',
-        fontSize: '15px',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5, 0)
-      .setDepth(30)
-
     this.surfaceText = this.add
       .text(GAME_WIDTH - 20, GAME_HEIGHT - 44, 'ROAD', {
         fontFamily: 'monospace',
@@ -361,12 +349,7 @@ export class RaceScene extends Phaser.Scene {
   }
 
   private updateHud() {
-    if (
-      !this.speedText ||
-      !this.surfaceText ||
-      !this.stateText ||
-      !this.playerKart
-    ) {
+    if (!this.speedText || !this.surfaceText || !this.playerKart) {
       return
     }
 
@@ -387,7 +370,6 @@ export class RaceScene extends Phaser.Scene {
             : 'OUTSIDE'
 
     this.surfaceText.setText(surfaceLabel)
-    this.stateText.setText(this.playerKart.state.toUpperCase())
   }
 
   private syncCameraToKart() {
