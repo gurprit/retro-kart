@@ -9,49 +9,66 @@ type Colour = {
   a: number
 }
 
-const SOLID_RADIUS = 3
-const SOLID_DENSITY = 0.72
+const MASK_SOLID_THRESHOLD = 180
+const COLLISION_RADIUS = 2
 
 export class TrackSurfaceMap {
   readonly width: number
   readonly height: number
 
-  private readonly pixels: Uint8ClampedArray
+  private readonly surfacePixels: Uint8ClampedArray
+  private readonly collisionPixels: Uint8ClampedArray
 
-  constructor(scene: Phaser.Scene, textureKey: string) {
-    const texture = scene.textures.get(textureKey)
-    const sourceImage = texture.getSourceImage() as CanvasImageSource & {
+  constructor(
+    scene: Phaser.Scene,
+    surfaceTextureKey: string,
+    collisionTextureKey: string,
+  ) {
+    const surfaceTexture = scene.textures.get(surfaceTextureKey)
+    const collisionTexture = scene.textures.get(collisionTextureKey)
+
+    const surfaceImage = surfaceTexture.getSourceImage() as CanvasImageSource & {
+      width: number
+      height: number
+    }
+    const collisionImage = collisionTexture.getSourceImage() as CanvasImageSource & {
       width: number
       height: number
     }
 
-    this.width = sourceImage.width
-    this.height = sourceImage.height
+    this.width = surfaceImage.width
+    this.height = surfaceImage.height
 
-    const canvas = document.createElement('canvas')
-    canvas.width = this.width
-    canvas.height = this.height
-
-    const context = canvas.getContext('2d', { willReadFrequently: true })
-
-    if (!context) {
-      throw new Error('Could not create track surface canvas context')
+    if (
+      collisionImage.width !== this.width ||
+      collisionImage.height !== this.height
+    ) {
+      throw new Error(
+        `Collision mask must match track dimensions (${this.width}x${this.height})`,
+      )
     }
 
-    context.imageSmoothingEnabled = false
-    context.drawImage(sourceImage, 0, 0)
-    this.pixels = context.getImageData(0, 0, this.width, this.height).data
+    this.surfacePixels = this.readPixels(surfaceImage, this.width, this.height)
+    this.collisionPixels = this.readPixels(
+      collisionImage,
+      collisionImage.width,
+      collisionImage.height,
+    )
   }
 
   sample(x: number, y: number): TrackSurface {
-    const pixel = this.getPixel(Math.floor(x), Math.floor(y))
-
-    if (!pixel) {
+    if (!this.isInside(x, y)) {
       return 'void'
     }
 
-    if (this.isBarrierColour(pixel)) {
+    if (this.isSolid(x, y)) {
       return 'barrier'
+    }
+
+    const pixel = this.getSurfacePixel(Math.floor(x), Math.floor(y))
+
+    if (!pixel) {
+      return 'void'
     }
 
     const maxChannel = Math.max(pixel.r, pixel.g, pixel.b)
@@ -72,7 +89,7 @@ export class TrackSurfaceMap {
     const dx = toX - fromX
     const dy = toY - fromY
     const distance = Math.hypot(dx, dy)
-    const steps = Math.max(1, Math.ceil(distance))
+    const steps = Math.max(1, Math.ceil(distance * 2))
 
     for (let step = 1; step <= steps; step += 1) {
       const progress = step / steps
@@ -88,67 +105,63 @@ export class TrackSurfaceMap {
   }
 
   private hasSolidBarrierAt(x: number, y: number) {
-    let barrierPixels = 0
-    let sampledPixels = 0
-
-    for (let offsetY = -SOLID_RADIUS; offsetY <= SOLID_RADIUS; offsetY += 1) {
-      for (let offsetX = -SOLID_RADIUS; offsetX <= SOLID_RADIUS; offsetX += 1) {
-        const pixel = this.getPixel(
-          Math.floor(x + offsetX),
-          Math.floor(y + offsetY),
-        )
-
-        if (!pixel) {
-          continue
-        }
-
-        sampledPixels += 1
-
-        if (this.isBarrierColour(pixel)) {
-          barrierPixels += 1
+    for (let offsetY = -COLLISION_RADIUS; offsetY <= COLLISION_RADIUS; offsetY += 1) {
+      for (let offsetX = -COLLISION_RADIUS; offsetX <= COLLISION_RADIUS; offsetX += 1) {
+        if (this.isSolid(x + offsetX, y + offsetY)) {
+          return true
         }
       }
     }
 
-    if (sampledPixels === 0) {
+    return false
+  }
+
+  private isSolid(x: number, y: number) {
+    const pixel = this.getCollisionPixel(Math.floor(x), Math.floor(y))
+
+    if (!pixel) {
       return false
     }
 
-    // The coloured block barriers are large, densely coloured regions. The
-    // red/white kerbs contain lots of white between their red stripes, so they
-    // deliberately stay non-solid and continue to behave like rough bumps.
-    return barrierPixels / sampledPixels >= SOLID_DENSITY
+    const brightness = (pixel.r + pixel.g + pixel.b) / 3
+
+    return pixel.a > 16 && brightness >= MASK_SOLID_THRESHOLD
   }
 
-  private isBarrierColour(pixel: Colour) {
-    if (pixel.a <= 16) {
-      return false
+  private readPixels(image: CanvasImageSource, width: number, height: number) {
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+
+    if (!context) {
+      throw new Error('Could not create track map canvas context')
     }
 
-    const red =
-      pixel.r >= 185 &&
-      pixel.g <= 85 &&
-      pixel.b <= 85
+    context.imageSmoothingEnabled = false
+    context.drawImage(image, 0, 0)
 
-    const blue =
-      pixel.b >= 150 &&
-      pixel.r <= 100 &&
-      pixel.g <= 135
-
-    const yellow =
-      pixel.r >= 180 &&
-      pixel.g >= 155 &&
-      pixel.b <= 95
-
-    const green =
-      pixel.g >= 135 &&
-      pixel.r <= 105 &&
-      pixel.b <= 105
-
-    return red || blue || yellow || green
+    return context.getImageData(0, 0, width, height).data
   }
 
-  private getPixel(x: number, y: number): Colour | undefined {
+  private isInside(x: number, y: number) {
+    return x >= 0 && y >= 0 && x < this.width && y < this.height
+  }
+
+  private getSurfacePixel(x: number, y: number): Colour | undefined {
+    return this.getPixel(this.surfacePixels, x, y)
+  }
+
+  private getCollisionPixel(x: number, y: number): Colour | undefined {
+    return this.getPixel(this.collisionPixels, x, y)
+  }
+
+  private getPixel(
+    pixels: Uint8ClampedArray,
+    x: number,
+    y: number,
+  ): Colour | undefined {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) {
       return undefined
     }
@@ -156,10 +169,10 @@ export class TrackSurfaceMap {
     const index = (y * this.width + x) * 4
 
     return {
-      r: this.pixels[index],
-      g: this.pixels[index + 1],
-      b: this.pixels[index + 2],
-      a: this.pixels[index + 3],
+      r: pixels[index],
+      g: pixels[index + 1],
+      b: pixels[index + 2],
+      a: pixels[index + 3],
     }
   }
 }
