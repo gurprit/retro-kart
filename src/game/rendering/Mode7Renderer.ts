@@ -9,6 +9,7 @@ export type Mode7CameraState = {
 export class Mode7Renderer {
   readonly sourceWidth: number
   readonly sourceHeight: number
+  readonly groundContactDistance: number
 
   private readonly sourcePixels: Uint8ClampedArray
   private readonly outputTexture: Phaser.Textures.CanvasTexture
@@ -80,6 +81,12 @@ export class Mode7Renderer {
     this.nearDistance = minSourceDimension * 0.055
     this.farDistance = minSourceDimension * 0.56
 
+    // The kart sprite is drawn at the bottom centre of the projected ground.
+    // The bottom row represents nearDistance world units in front of the camera,
+    // so the camera must sit this far behind the kart for visuals, surfaces and
+    // collision sampling to share the same world coordinate.
+    this.groundContactDistance = this.nearDistance
+
     const horizontalFovDegrees = 62
     this.halfFovTangent = Math.tan(
       Phaser.Math.DegToRad(horizontalFovDegrees / 2),
@@ -100,9 +107,6 @@ export class Mode7Renderer {
 
     for (let screenY = 0; screenY < this.height; screenY += 1) {
       const rowProgress = screenY / Math.max(1, this.height - 1)
-
-      // Reciprocal depth gives a flatter, more camera-like ground plane than
-      // the previous power curve, which exaggerated the near field.
       const denominator =
         this.nearDistance +
         (this.farDistance - this.nearDistance) * rowProgress
