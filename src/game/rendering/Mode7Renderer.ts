@@ -6,6 +6,8 @@ export type Mode7CameraState = {
   angle: number
 }
 
+const KART_CONTACT_OFFSET_FROM_BOTTOM = 42
+
 export class Mode7Renderer {
   readonly sourceWidth: number
   readonly sourceHeight: number
@@ -81,11 +83,15 @@ export class Mode7Renderer {
     this.nearDistance = minSourceDimension * 0.055
     this.farDistance = minSourceDimension * 0.56
 
-    // The kart sprite is drawn at the bottom centre of the projected ground.
-    // The bottom row represents nearDistance world units in front of the camera,
-    // so the camera must sit this far behind the kart for visuals, surfaces and
-    // collision sampling to share the same world coordinate.
-    this.groundContactDistance = this.nearDistance
+    // Mario's tyre/contact point is 42 screen pixels above the bottom edge.
+    // Align the camera to the projection distance at that exact scanline rather
+    // than the final ground row, so visuals and collision sample the same point.
+    const contactRow = Phaser.Math.Clamp(
+      this.height - KART_CONTACT_OFFSET_FROM_BOTTOM,
+      0,
+      this.height - 1,
+    )
+    this.groundContactDistance = this.distanceForRow(contactRow)
 
     const horizontalFovDegrees = 62
     this.halfFovTangent = Math.tan(
@@ -106,12 +112,7 @@ export class Mode7Renderer {
     const rightY = Math.sin(camera.angle)
 
     for (let screenY = 0; screenY < this.height; screenY += 1) {
-      const rowProgress = screenY / Math.max(1, this.height - 1)
-      const denominator =
-        this.nearDistance +
-        (this.farDistance - this.nearDistance) * rowProgress
-      const distance =
-        (this.nearDistance * this.farDistance) / denominator
+      const distance = this.distanceForRow(screenY)
 
       const halfWorldWidth = distance * this.halfFovTangent
       const rowCenterX = camera.x + forwardX * distance
@@ -150,5 +151,14 @@ export class Mode7Renderer {
 
     this.outputContext.putImageData(this.outputImageData, 0, 0)
     this.outputTexture.refresh()
+  }
+
+  private distanceForRow(screenY: number) {
+    const rowProgress = screenY / Math.max(1, this.height - 1)
+    const denominator =
+      this.nearDistance +
+      (this.farDistance - this.nearDistance) * rowProgress
+
+    return (this.nearDistance * this.farDistance) / denominator
   }
 }
