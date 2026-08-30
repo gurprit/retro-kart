@@ -19,7 +19,7 @@ const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
 const TRACK_TEXTURE_KEY = 'prototype-track'
 const COLLISION_TEXTURE_KEY = 'prototype-collision'
 const RACER_TEXTURE_KEY = 'prototype-racer'
-const PARTICLE_TEXTURE_KEY = 'prototype-particles'
+const PARTICLE_SHEET_URL = '/assets/Particles.png'
 const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
 const NEAR_BACKGROUND_TEXTURE_KEY = 'prototype-near-background'
 
@@ -98,7 +98,6 @@ export class RaceScene extends Phaser.Scene {
       RACER_TEXTURE_KEY,
       '/assets/characters/Racers - Mario.png',
     )
-    this.load.image(PARTICLE_TEXTURE_KEY, '/assets/Particles.png')
   }
 
   create() {
@@ -175,7 +174,7 @@ export class RaceScene extends Phaser.Scene {
 
     this.skidEffects = new SkidEffects(
       this,
-      PARTICLE_TEXTURE_KEY,
+      PARTICLE_SHEET_URL,
       GAME_WIDTH / 2,
       GAME_HEIGHT - 42,
     )
