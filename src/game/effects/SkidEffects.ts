@@ -2,18 +2,16 @@ import Phaser from 'phaser'
 
 type ParticleFrame = {
   textureKey: string
-  pixelCount: number
   saturation: number
-  brightness: number
   warmScore: number
+  area: number
 }
 
 const CELL_SIZE = 16
 const EMIT_INTERVAL = 0.055
 const PARTICLE_LIFETIME = 0.34
-const BACKGROUND_TOLERANCE = 32
+const BACKGROUND_TOLERANCE = 34
 const MIN_VISIBLE_PIXELS = 5
-const MAX_VISIBLE_PIXELS = 180
 
 export class SkidEffects {
   private readonly scene: Phaser.Scene
@@ -22,21 +20,22 @@ export class SkidEffects {
   private readonly dustFrames: string[] = []
   private readonly sparkFrames: string[] = []
   private emitTimer = 0
+  private ready = false
 
   constructor(
     scene: Phaser.Scene,
-    particleTextureKey: string,
+    particleSheetUrl: string,
     x: number,
     y: number,
   ) {
     this.scene = scene
     this.x = x
     this.y = y
-    this.extractParticleGrid(particleTextureKey)
+    this.loadParticleSheet(particleSheetUrl)
   }
 
   update(active: boolean, speedRatio: number, deltaSeconds: number) {
-    if (!active) {
+    if (!active || !this.ready) {
       this.emitTimer = 0
       return
     }
@@ -48,14 +47,29 @@ export class SkidEffects {
     }
 
     const intensity = Phaser.Math.Clamp(Math.abs(speedRatio), 0.2, 1)
-    this.emitTimer = EMIT_INTERVAL * Phaser.Math.Linear(1.15, 0.72, intensity)
+    this.emitTimer = EMIT_INTERVAL * Phaser.Math.Linear(1.15, 0.7, intensity)
 
-    this.spawnDust(-22, intensity)
-    this.spawnDust(22, intensity)
+    this.spawnDust(-23, intensity)
+    this.spawnDust(23, intensity)
 
-    if (intensity > 0.72 && this.sparkFrames.length > 0) {
+    if (intensity > 0.68 && this.sparkFrames.length > 0) {
       this.spawnSpark(intensity)
     }
+  }
+
+  private loadParticleSheet(url: string) {
+    const image = new Image()
+
+    image.onload = () => {
+      this.extractGridFrames(image)
+      this.ready = this.dustFrames.length > 0
+    }
+
+    image.onerror = () => {
+      console.warn(`Could not load particle sheet: ${url}`)
+    }
+
+    image.src = `${url}?v=2`
   }
 
   private spawnDust(offsetX: number, intensity: number) {
@@ -66,16 +80,19 @@ export class SkidEffects {
     }
 
     const particle = this.scene.add
-      .image(this.x + offsetX, this.y + 2, textureKey)
+      .image(this.x + offsetX, this.y + 3, textureKey)
       .setOrigin(0.5)
       .setDepth(19)
-      .setAlpha(0.9)
-      .setScale(Phaser.Math.Linear(1.35, 2.05, intensity))
+      .setAlpha(0.82)
+      .setScale(Phaser.Math.Linear(1.2, 1.9, intensity))
+
+    const driftX = Phaser.Math.Between(-12, 12)
+    const driftY = Phaser.Math.Between(10, 20)
 
     this.scene.tweens.add({
       targets: particle,
-      x: particle.x + Phaser.Math.Between(-12, 12),
-      y: particle.y + Phaser.Math.Between(9, 18),
+      x: particle.x + driftX,
+      y: particle.y + driftY,
       alpha: 0,
       scaleX: particle.scaleX * 1.45,
       scaleY: particle.scaleY * 1.45,
@@ -97,32 +114,26 @@ export class SkidEffects {
       .image(this.x + side * 27, this.y - 1, textureKey)
       .setOrigin(0.5)
       .setDepth(21)
-      .setAlpha(1)
-      .setScale(Phaser.Math.Linear(1.05, 1.55, intensity))
+      .setAlpha(0.95)
+      .setScale(Phaser.Math.Linear(0.9, 1.3, intensity))
 
     this.scene.tweens.add({
       targets: particle,
-      x: particle.x + side * Phaser.Math.Between(5, 13),
-      y: particle.y + Phaser.Math.Between(4, 11),
+      x: particle.x + side * Phaser.Math.Between(6, 14),
+      y: particle.y + Phaser.Math.Between(5, 13),
       alpha: 0,
       scaleX: particle.scaleX * 0.7,
       scaleY: particle.scaleY * 0.7,
-      duration: 145,
+      duration: 150,
       ease: 'Quad.easeOut',
       onComplete: () => particle.destroy(),
     })
   }
 
-  private extractParticleGrid(textureKey: string) {
-    const texture = this.scene.textures.get(textureKey)
-    const sourceImage = texture.getSourceImage() as CanvasImageSource & {
-      width: number
-      height: number
-    }
-
+  private extractGridFrames(image: HTMLImageElement) {
     const canvas = document.createElement('canvas')
-    canvas.width = sourceImage.width
-    canvas.height = sourceImage.height
+    canvas.width = image.naturalWidth
+    canvas.height = image.naturalHeight
 
     const context = canvas.getContext('2d', { willReadFrequently: true })
 
@@ -131,27 +142,22 @@ export class SkidEffects {
     }
 
     context.imageSmoothingEnabled = false
-    context.drawImage(sourceImage, 0, 0)
+    context.drawImage(image, 0, 0)
 
-    const frames: ParticleFrame[] = []
     const columns = Math.floor(canvas.width / CELL_SIZE)
     const rows = Math.floor(canvas.height / CELL_SIZE)
+    const frames: ParticleFrame[] = []
 
     for (let row = 0; row < rows; row += 1) {
       for (let column = 0; column < columns; column += 1) {
-        const sourceX = column * CELL_SIZE
-        const sourceY = row * CELL_SIZE
         const imageData = context.getImageData(
-          sourceX,
-          sourceY,
+          column * CELL_SIZE,
+          row * CELL_SIZE,
           CELL_SIZE,
           CELL_SIZE,
         )
 
-        const frame = this.createParticleFrame(
-          imageData,
-          row * columns + column,
-        )
+        const frame = this.createFrameFromCell(imageData, row, column)
 
         if (frame) {
           frames.push(frame)
@@ -160,52 +166,36 @@ export class SkidEffects {
     }
 
     const dust = frames
-      .filter(
-        (frame) =>
-          frame.saturation < 82 &&
-          frame.brightness > 55 &&
-          frame.brightness < 225,
-      )
-      .sort((a, b) => b.pixelCount - a.pixelCount)
+      .filter((frame) => frame.saturation < 90 && frame.area >= 10)
+      .sort((a, b) => b.area - a.area)
       .slice(0, 10)
 
     const sparks = frames
-      .filter(
-        (frame) =>
-          frame.warmScore > 30 &&
-          frame.saturation > 65 &&
-          frame.brightness > 80,
-      )
+      .filter((frame) => frame.warmScore > 22 && frame.saturation > 55)
       .sort((a, b) => b.warmScore - a.warmScore)
       .slice(0, 8)
 
     this.dustFrames.push(...dust.map((frame) => frame.textureKey))
     this.sparkFrames.push(...sparks.map((frame) => frame.textureKey))
 
-    // Keep a conservative fallback so effects never disappear entirely if the
-    // temporary prototype sheet has an unexpected palette.
     if (this.dustFrames.length === 0) {
-      this.dustFrames.push(
-        ...frames
-          .filter((frame) => frame.saturation < 110)
-          .slice(0, 6)
-          .map((frame) => frame.textureKey),
-      )
+      this.dustFrames.push(...frames.slice(0, 8).map((frame) => frame.textureKey))
     }
   }
 
-  private createParticleFrame(
+  private createFrameFromCell(
     imageData: ImageData,
-    sourceIndex: number,
+    row: number,
+    column: number,
   ): ParticleFrame | undefined {
     const pixels = imageData.data
-    const background = this.findCellBackground(pixels)
-    const cleaned = new ImageData(CELL_SIZE, CELL_SIZE)
-
-    let pixelCount = 0
+    const background = this.findDominantColour(pixels)
+    let visiblePixels = 0
     let totalR = 0
     let totalG = 0
     let totalB = 0
+
+    const cleaned = new ImageData(CELL_SIZE, CELL_SIZE)
 
     for (let index = 0; index < pixels.length; index += 4) {
       const alpha = pixels[index + 3]
@@ -214,70 +204,63 @@ export class SkidEffects {
         continue
       }
 
-      const r = pixels[index]
-      const g = pixels[index + 1]
-      const b = pixels[index + 2]
       const distance =
-        Math.abs(r - background.r) +
-        Math.abs(g - background.g) +
-        Math.abs(b - background.b)
+        Math.abs(pixels[index] - background.r) +
+        Math.abs(pixels[index + 1] - background.g) +
+        Math.abs(pixels[index + 2] - background.b)
 
       if (distance <= BACKGROUND_TOLERANCE) {
         continue
       }
 
-      cleaned.data[index] = r
-      cleaned.data[index + 1] = g
-      cleaned.data[index + 2] = b
+      cleaned.data[index] = pixels[index]
+      cleaned.data[index + 1] = pixels[index + 1]
+      cleaned.data[index + 2] = pixels[index + 2]
       cleaned.data[index + 3] = 255
 
-      pixelCount += 1
-      totalR += r
-      totalG += g
-      totalB += b
+      visiblePixels += 1
+      totalR += pixels[index]
+      totalG += pixels[index + 1]
+      totalB += pixels[index + 2]
     }
 
-    if (
-      pixelCount < MIN_VISIBLE_PIXELS ||
-      pixelCount > MAX_VISIBLE_PIXELS
-    ) {
+    if (visiblePixels < MIN_VISIBLE_PIXELS) {
       return undefined
     }
 
-    const textureKey = `prototype-particle-cell-${sourceIndex}`
+    const textureKey = `prototype-particle-${row}-${column}`
 
     if (!this.scene.textures.exists(textureKey)) {
-      const frameTexture = this.scene.textures.createCanvas(
+      const texture = this.scene.textures.createCanvas(
         textureKey,
         CELL_SIZE,
         CELL_SIZE,
       )
 
-      if (!frameTexture) {
+      if (!texture) {
         return undefined
       }
 
-      frameTexture.context.imageSmoothingEnabled = false
-      frameTexture.context.putImageData(cleaned, 0, 0)
-      frameTexture.refresh()
+      texture.context.imageSmoothingEnabled = false
+      texture.context.putImageData(cleaned, 0, 0)
+      texture.refresh()
     }
 
-    const avgR = totalR / pixelCount
-    const avgG = totalG / pixelCount
-    const avgB = totalB / pixelCount
-    const max = Math.max(avgR, avgG, avgB)
-    const min = Math.min(avgR, avgG, avgB)
+    const avgR = totalR / visiblePixels
+    const avgG = totalG / visiblePixels
+    const avgB = totalB / visiblePixels
+    const saturation = Math.max(avgR, avgG, avgB) - Math.min(avgR, avgG, avgB)
+    const warmScore = avgR - (avgG + avgB) * 0.5
 
     return {
       textureKey,
-      pixelCount,
-      saturation: max - min,
-      brightness: (avgR + avgG + avgB) / 3,
-      warmScore: avgR - (avgG + avgB) * 0.5,
+      saturation,
+      warmScore,
+      area: visiblePixels,
     }
   }
 
-  private findCellBackground(pixels: Uint8ClampedArray) {
+  private findDominantColour(pixels: Uint8ClampedArray) {
     const counts = new Map<string, number>()
 
     for (let index = 0; index < pixels.length; index += 4) {
@@ -289,7 +272,7 @@ export class SkidEffects {
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
 
-    let background = { r: 0, g: 0, b: 0 }
+    let dominant = { r: 0, g: 0, b: 0 }
     let largestCount = 0
 
     for (const [key, count] of counts) {
@@ -299,9 +282,9 @@ export class SkidEffects {
 
       largestCount = count
       const [r, g, b] = key.split(',').map(Number)
-      background = { r, g, b }
+      dominant = { r, g, b }
     }
 
-    return background
+    return dominant
   }
 }
