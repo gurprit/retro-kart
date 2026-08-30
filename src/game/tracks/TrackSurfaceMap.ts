@@ -10,7 +10,7 @@ type Colour = {
 }
 
 const MASK_SOLID_THRESHOLD = 180
-const COLLISION_RADIUS = 2
+const COLLISION_RADIUS = 7
 
 export class TrackSurfaceMap {
   readonly width: number
@@ -105,8 +105,17 @@ export class TrackSurfaceMap {
   }
 
   private hasSolidBarrierAt(x: number, y: number) {
+    // Use a circular kart-sized footprint rather than a centre-point check.
+    // This catches shallow-angle scrapes where the visible tyres/body reach the
+    // wall before the kart's centre crosses the collision mask.
+    const radiusSquared = COLLISION_RADIUS * COLLISION_RADIUS
+
     for (let offsetY = -COLLISION_RADIUS; offsetY <= COLLISION_RADIUS; offsetY += 1) {
       for (let offsetX = -COLLISION_RADIUS; offsetX <= COLLISION_RADIUS; offsetX += 1) {
+        if (offsetX * offsetX + offsetY * offsetY > radiusSquared) {
+          continue
+        }
+
         if (this.isSolid(x + offsetX, y + offsetY)) {
           return true
         }
