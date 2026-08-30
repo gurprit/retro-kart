@@ -24,6 +24,14 @@ const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
 const NEAR_BACKGROUND_TEXTURE_KEY = 'prototype-near-background'
 const HARD_COLLISION_SPIN_SPEED = 0.48
 
+// Mario Circuit 1 start grid. Keep these normalized so a small future crop of
+// the source map does not require rewriting gameplay coordinates.
+const START_GRID = {
+  xRatio: 0.91,
+  yRatio: 0.66,
+  heading: 0,
+} as const
+
 const SURFACE_HANDLING = {
   road: {
     speedMultiplier: 1,
@@ -61,7 +69,7 @@ export class RaceScene extends Phaser.Scene {
   private cameraState: Mode7CameraState = {
     x: 0,
     y: 0,
-    angle: Math.PI / 2,
+    angle: START_GRID.heading,
   }
 
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys
@@ -150,9 +158,9 @@ export class RaceScene extends Phaser.Scene {
     )
 
     this.playerKart = new PlayerKart(
-      this.mode7Renderer.sourceWidth * 0.5,
-      this.mode7Renderer.sourceHeight * 0.78,
-      Math.PI / 2,
+      this.mode7Renderer.sourceWidth * START_GRID.xRatio,
+      this.mode7Renderer.sourceHeight * START_GRID.yRatio,
+      START_GRID.heading,
       worldScale,
     )
 
