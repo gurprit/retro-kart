@@ -34,9 +34,9 @@ export class Mode7Renderer {
   private readonly scene: Phaser.Scene
   private readonly sourcePixels: Uint8ClampedArray
   private readonly groundOverlayPixels: Uint8ClampedArray
-  private readonly outsidePixels?: Uint8ClampedArray
-  private readonly outsideWidth = 0
-  private readonly outsideHeight = 0
+  private outsidePixels?: Uint8ClampedArray
+  private outsideWidth = 0
+  private outsideHeight = 0
   private readonly outputTexture: Phaser.Textures.CanvasTexture
   private readonly outputContext: CanvasRenderingContext2D
   private readonly outputImageData: ImageData
@@ -115,8 +115,8 @@ export class Mode7Renderer {
           outsideImage.width,
           outsideImage.height,
         ).data
-        ;(this as { outsideWidth: number }).outsideWidth = outsideImage.width
-        ;(this as { outsideHeight: number }).outsideHeight = outsideImage.height
+        this.outsideWidth = outsideImage.width
+        this.outsideHeight = outsideImage.height
       }
     }
 
