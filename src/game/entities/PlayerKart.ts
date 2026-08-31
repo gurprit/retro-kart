@@ -1,3 +1,5 @@
+import type { RacerProfile } from '../config/RacerProfiles'
+
 export type KartControls = {
   accelerate: boolean
   brake: boolean
@@ -36,6 +38,7 @@ export class PlayerKart {
 
   readonly maxForwardSpeed: number
   readonly maxReverseSpeed: number
+  readonly racerProfile: RacerProfile
 
   private readonly acceleration: number
   private readonly braking: number
@@ -45,18 +48,28 @@ export class PlayerKart {
   private travelAngle: number
   private hitTimer = 0
 
-  constructor(x: number, y: number, angle: number, worldScale: number) {
+  constructor(
+    x: number,
+    y: number,
+    angle: number,
+    worldScale: number,
+    racerProfile: RacerProfile,
+  ) {
     this.x = x
     this.y = y
     this.angle = angle
     this.travelAngle = angle
+    this.racerProfile = racerProfile
 
-    this.maxForwardSpeed = worldScale * 0.32
+    const baseForwardSpeed = worldScale * 0.32
+    this.maxForwardSpeed =
+      baseForwardSpeed * racerProfile.topSpeedMultiplier
     this.maxReverseSpeed = this.maxForwardSpeed * 0.34
-    this.acceleration = this.maxForwardSpeed * 0.82
-    this.braking = this.maxForwardSpeed * 1.55
-    this.reverseAcceleration = this.maxForwardSpeed * 0.56
-    this.rollingResistance = this.maxForwardSpeed * 0.42
+    this.acceleration =
+      baseForwardSpeed * 0.82 * racerProfile.accelerationMultiplier
+    this.braking = baseForwardSpeed * 1.55
+    this.reverseAcceleration = baseForwardSpeed * 0.56
+    this.rollingResistance = baseForwardSpeed * 0.42
     this.turnRate = 2.15
   }
 
