@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <title>Retro Kart</title>
 
@@ -15,6 +15,7 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
+        overscroll-behavior: none;
         background: #000;
       }
 
@@ -22,15 +23,21 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
       }
 
       #game {
         width: 100%;
         height: 100%;
+        touch-action: none;
       }
 
       canvas {
         display: block;
+        touch-action: none;
       }
     </style>
   </head>
