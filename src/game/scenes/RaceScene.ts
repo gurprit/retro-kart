@@ -14,7 +14,18 @@ import {
   type TrackSurface,
 } from '../tracks/TrackSurfaceMap'
 
-const GAME_WIDTH = 800
+const isTouchDevice =
+  typeof navigator !== 'undefined' &&
+  (navigator.maxTouchPoints > 0 || 'ontouchstart' in window)
+const isLandscapeTouch =
+  isTouchDevice && window.innerWidth > window.innerHeight
+const GAME_WIDTH = isLandscapeTouch
+  ? Phaser.Math.Clamp(
+      Math.round(600 * (window.innerWidth / window.innerHeight)),
+      960,
+      1360,
+    )
+  : 800
 const GAME_HEIGHT = 600
 const HORIZON_Y = 250
 const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
