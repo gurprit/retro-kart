@@ -11,21 +11,21 @@ type ItemBox = {
   x: number
   y: number
   active: boolean
-  view: Phaser.GameObjects.Image
+  view: Phaser.GameObjects.Container
+  panel: Phaser.GameObjects.Image
+  glyph: Phaser.GameObjects.Image
 }
 
 const PICKUP_RADIUS_RATIO = 0.035
 const ITEM_BOX_RESPAWN_MS = 5000
 
-// The active panel should read as a moving/scrolling question mark rather than
-// a rapid flash. Keep the panel background stable and move only the glyph.
-const PANEL_FRAME_MS = 170
-const PANEL_TEXTURE_KEY = 'item-panels-complete'
+// Keep the physical panel completely static. Only the question-mark layer
+// animates, which avoids the full-tile shimmer from swapping complete frames.
+const PANEL_FRAME_MS = 150
+const PANEL_TEXTURE_KEY = 'item-panel-base'
+const GLYPH_TEXTURE_KEY = 'item-panel-question'
 const PANEL_SIZE = 32
-const ACTIVE_PANEL_FRAMES = 8
-const EMPTY_PANEL_FRAME_START = ACTIVE_PANEL_FRAMES
-const EMPTY_PANEL_FRAMES = 2
-const PANEL_FRAME_COUNT = ACTIVE_PANEL_FRAMES + EMPTY_PANEL_FRAMES
+const GLYPH_FRAMES = 8
 
 const ROULETTE_DURATION_MS = 1100
 const ROULETTE_STEP_MS = 110
@@ -63,18 +63,34 @@ export class ItemSystem {
     this.scene = scene
     this.renderer = renderer
     this.pickupRadius = worldScale * PICKUP_RADIUS_RATIO
-    this.createCompletePanelTexture()
+    this.createPanelTextures()
 
-    this.itemBoxes = MARIO_CIRCUIT_ITEM_BOXES.map((definition) => ({
-      id: definition.id,
-      x: renderer.sourceWidth * definition.xRatio,
-      y: renderer.sourceHeight * definition.yRatio,
-      active: true,
-      view: scene.add
+    this.itemBoxes = MARIO_CIRCUIT_ITEM_BOXES.map((definition) => {
+      const panel = scene.add
         .image(0, 0, PANEL_TEXTURE_KEY)
-        .setOrigin(0.5)
-        .setVisible(false),
-    }))
+        .setOrigin(0.5, 1)
+        .setCrop(0, 0, PANEL_SIZE, PANEL_SIZE)
+
+      const glyph = scene.add
+        .image(0, 0, GLYPH_TEXTURE_KEY)
+        .setOrigin(0.5, 1)
+        .setCrop(0, 0, PANEL_SIZE, PANEL_SIZE)
+
+      const view = scene.add
+        .container(0, 0, [panel, glyph])
+        .setDepth(8)
+        .setVisible(false)
+
+      return {
+        id: definition.id,
+        x: renderer.sourceWidth * definition.xRatio,
+        y: renderer.sourceHeight * definition.yRatio,
+        active: true,
+        view,
+        panel,
+        glyph,
+      }
+    })
 
     this.rouletteFrame = scene.add
       .rectangle(90, 128, 110, 86, 0x101018, 0.92)
@@ -103,7 +119,7 @@ export class ItemSystem {
       delay: PANEL_FRAME_MS,
       loop: true,
       callback: () => {
-        this.panelFrame += 1
+        this.panelFrame = (this.panelFrame + 1) % GLYPH_FRAMES
       },
     })
   }
@@ -141,12 +157,15 @@ export class ItemSystem {
     this.panelTimer?.destroy()
     this.rouletteTimer?.destroy()
     this.rouletteFinishTimer?.destroy()
-    for (const itemBox of this.itemBoxes) itemBox.view.destroy()
+    for (const itemBox of this.itemBoxes) itemBox.view.destroy(true)
     this.rouletteFrame.destroy()
     this.rouletteSprite.destroy()
     this.heldText.destroy()
     if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) {
       this.scene.textures.remove(PANEL_TEXTURE_KEY)
+    }
+    if (this.scene.textures.exists(GLYPH_TEXTURE_KEY)) {
+      this.scene.textures.remove(GLYPH_TEXTURE_KEY)
     }
   }
 
@@ -212,79 +231,109 @@ export class ItemSystem {
         continue
       }
 
-      const frame = itemBox.active
-        ? this.panelFrame % ACTIVE_PANEL_FRAMES
-        : EMPTY_PANEL_FRAME_START +
-          (this.panelFrame % EMPTY_PANEL_FRAMES)
-
-      itemBox.view.setCrop(
-        frame * PANEL_SIZE,
+      // The base panel never animates. Active = yellow frame 0, empty = red
+      // frame 1. The question-mark image above it is the only moving layer.
+      itemBox.panel.setCrop(
+        itemBox.active ? 0 : PANEL_SIZE,
         0,
         PANEL_SIZE,
         PANEL_SIZE,
       )
+      itemBox.glyph
+        .setVisible(itemBox.active)
+        .setCrop(
+          this.panelFrame * PANEL_SIZE,
+          0,
+          PANEL_SIZE,
+          PANEL_SIZE,
+        )
 
-      // Make the panels much more substantial on screen. They remain flatter
-      // vertically than horizontally so they still read as painted track tiles.
       const perspectiveScale = Phaser.Math.Clamp(
         projected.scale * 1.55,
         0.72,
         2.8,
       )
 
+      // Anchor the bottom edge directly on the projected road point. The
+      // dimensions are deliberately broader and less vertically crushed than
+      // before so the panel reads as a square tile lying in perspective rather
+      // than a thin floating sign.
+      const displayWidth = PANEL_SIZE * 4.35 * perspectiveScale
+      const displayHeight = PANEL_SIZE * 2.25 * perspectiveScale
+
+      itemBox.panel.setDisplaySize(displayWidth, displayHeight)
+      itemBox.glyph.setDisplaySize(displayWidth, displayHeight)
       itemBox.view
         .setVisible(true)
-        .setPosition(projected.x, projected.y)
-        .setDisplaySize(
-          PANEL_SIZE * 3.6 * perspectiveScale,
-          PANEL_SIZE * 1.35 * perspectiveScale,
-        )
+        .setPosition(projected.x, projected.y + 2)
         .setDepth(8 + projected.screenY / 1000)
     }
   }
 
-  private createCompletePanelTexture() {
-    if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) return
+  private createPanelTextures() {
+    if (!this.scene.textures.exists(PANEL_TEXTURE_KEY)) {
+      const texture = this.scene.textures.createCanvas(
+        PANEL_TEXTURE_KEY,
+        PANEL_SIZE * 2,
+        PANEL_SIZE,
+      )
 
-    const texture = this.scene.textures.createCanvas(
-      PANEL_TEXTURE_KEY,
-      PANEL_SIZE * PANEL_FRAME_COUNT,
-      PANEL_SIZE,
-    )
-    if (!texture) return
-
-    const context = texture.context
-    context.imageSmoothingEnabled = false
-
-    for (let frame = 0; frame < PANEL_FRAME_COUNT; frame += 1) {
-      const x = frame * PANEL_SIZE
-      const active = frame < ACTIVE_PANEL_FRAMES
-
-      context.fillStyle = active ? '#ffc000' : '#d90000'
-      context.fillRect(x, 0, PANEL_SIZE, PANEL_SIZE)
-
-      context.fillStyle = active ? '#ffffff' : '#ff9300'
-      context.fillRect(x, 0, PANEL_SIZE - 2, 2)
-      context.fillRect(x, 0, 2, PANEL_SIZE - 2)
-
-      context.fillStyle = active ? '#9d1400' : '#690000'
-      context.fillRect(x, PANEL_SIZE - 2, PANEL_SIZE, 2)
-      context.fillRect(x + PANEL_SIZE - 2, 0, 2, PANEL_SIZE)
-
-      if (active) {
-        // Eight frames move the same question mark from left to right. Portions
-        // naturally clip at the panel edges, creating the intended scrolling
-        // effect without changing the panel colour itself.
-        const scrollX = -10 + frame * 7
-        this.drawQuestionMark(context, x + scrollX, 5)
-      } else {
-        const emptyPulse = frame - EMPTY_PANEL_FRAME_START
-        context.fillStyle = '#710000'
-        context.fillRect(x + 10, 14 + emptyPulse, 12, 3)
+      if (texture) {
+        const context = texture.context
+        context.imageSmoothingEnabled = false
+        this.drawPanelBase(context, 0, true)
+        this.drawPanelBase(context, PANEL_SIZE, false)
+        texture.refresh()
       }
     }
 
-    texture.refresh()
+    if (!this.scene.textures.exists(GLYPH_TEXTURE_KEY)) {
+      const texture = this.scene.textures.createCanvas(
+        GLYPH_TEXTURE_KEY,
+        PANEL_SIZE * GLYPH_FRAMES,
+        PANEL_SIZE,
+      )
+
+      if (!texture) return
+
+      const context = texture.context
+      context.imageSmoothingEnabled = false
+
+      // Each frame is transparent except for the same question mark at a new
+      // horizontal position. The panel underneath remains perfectly static.
+      const positions = [-10, -5, 0, 5, 10, 5, 0, -5]
+      for (let frame = 0; frame < GLYPH_FRAMES; frame += 1) {
+        this.drawQuestionMark(
+          context,
+          frame * PANEL_SIZE + positions[frame],
+          5,
+        )
+      }
+
+      texture.refresh()
+    }
+  }
+
+  private drawPanelBase(
+    context: CanvasRenderingContext2D,
+    x: number,
+    active: boolean,
+  ) {
+    context.fillStyle = active ? '#ffc000' : '#d90000'
+    context.fillRect(x, 0, PANEL_SIZE, PANEL_SIZE)
+
+    context.fillStyle = active ? '#ffffff' : '#ff9300'
+    context.fillRect(x, 0, PANEL_SIZE - 2, 2)
+    context.fillRect(x, 0, 2, PANEL_SIZE - 2)
+
+    context.fillStyle = active ? '#9d1400' : '#690000'
+    context.fillRect(x, PANEL_SIZE - 2, PANEL_SIZE, 2)
+    context.fillRect(x + PANEL_SIZE - 2, 0, 2, PANEL_SIZE)
+
+    if (!active) {
+      context.fillStyle = '#710000'
+      context.fillRect(x + 10, 14, 12, 3)
+    }
   }
 
   private drawQuestionMark(
