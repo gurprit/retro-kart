@@ -21,6 +21,7 @@ const TRACK_TEXTURE_KEY = 'prototype-track'
 const COLLISION_TEXTURE_KEY = 'prototype-collision'
 const RACER_TEXTURE_KEY = 'prototype-racer'
 const ITEM_ROULETTE_TEXTURE_KEY = 'item-roulette'
+const MARIO_CIRCUIT_TILESET_KEY = 'mario-circuit-tileset'
 const PARTICLE_SHEET_URL = '/assets/effects/Particles.png'
 const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
 const NEAR_BACKGROUND_TEXTURE_KEY = 'prototype-near-background'
@@ -114,6 +115,10 @@ export class RaceScene extends Phaser.Scene {
       ITEM_ROULETTE_TEXTURE_KEY,
       '/assets/items/Item Roulette.png',
     )
+    this.load.image(
+      MARIO_CIRCUIT_TILESET_KEY,
+      '/assets/tilesets/Mario Circuit.png',
+    )
   }
 
   create() {
@@ -200,6 +205,7 @@ export class RaceScene extends Phaser.Scene {
       this.mode7Renderer,
       worldScale,
       ITEM_ROULETTE_TEXTURE_KEY,
+      MARIO_CIRCUIT_TILESET_KEY,
     )
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
