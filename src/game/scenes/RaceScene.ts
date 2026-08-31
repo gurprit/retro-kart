@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { RACERS, type RacerProfile } from '../config/RacerProfiles'
 import { PlayerKart } from '../entities/PlayerKart'
 import { SkidEffects } from '../effects/SkidEffects'
 import { TouchControls } from '../input/TouchControls'
@@ -36,20 +37,6 @@ const PARTICLE_SHEET_URL = '/assets/effects/Particles.png'
 const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
 const NEAR_BACKGROUND_TEXTURE_KEY = 'prototype-near-background'
 const HARD_COLLISION_SPIN_SPEED = 0.48
-
-const RACERS = [
-  { key: 'racer-mario', file: 'Racers - Mario.png' },
-  { key: 'racer-luigi', file: 'Racers - Luigi.png' },
-  { key: 'racer-yoshi', file: 'Racers - Yoshi.png' },
-  { key: 'racer-toad', file: 'Racers - Toad.png' },
-  { key: 'racer-bowser', file: 'Racers - Bowser.png' },
-  { key: 'racer-donkey-kong-jr', file: 'Racers - Donkey Kong Jr..png' },
-  { key: 'racer-koopa-troopa', file: 'Racers - Koopa Troopa.png' },
-  {
-    key: 'racer-princess-toadstool',
-    file: 'Racers - Princess Toadstool _ Peach.png',
-  },
-] as const
 
 const START_GRID = {
   xRatio: 0.91,
@@ -91,8 +78,9 @@ export class RaceScene extends Phaser.Scene {
   private trackSurfaceMap?: TrackSurfaceMap
   private speedText?: Phaser.GameObjects.Text
   private surfaceText?: Phaser.GameObjects.Text
+  private racerText?: Phaser.GameObjects.Text
   private currentSurface: TrackSurface = 'road'
-private selectedRacerKey: string = RACERS[0].key
+  private selectedRacer: RacerProfile = RACERS[0]
 
   private cameraState: Mode7CameraState = {
     x: 0,
@@ -176,11 +164,14 @@ private selectedRacerKey: string = RACERS[0].key
       this.mode7Renderer.sourceHeight,
     )
 
+    this.selectedRacer = RACERS[Math.floor(Math.random() * RACERS.length)]
+
     this.playerKart = new PlayerKart(
       this.mode7Renderer.sourceWidth * START_GRID.xRatio,
       this.mode7Renderer.sourceHeight * START_GRID.yRatio,
       START_GRID.heading,
       worldScale,
+      this.selectedRacer,
     )
 
     this.currentSurface = this.trackSurfaceMap.sample(
@@ -192,12 +183,9 @@ private selectedRacerKey: string = RACERS[0].key
     this.createKeyboardControls()
     this.createHud()
 
-    const selectedRacer =
-      RACERS[Math.floor(Math.random() * RACERS.length)]
-    this.selectedRacerKey = selectedRacer.key
     this.racerSprite = new RacerSpriteView(
       this,
-      this.selectedRacerKey,
+      this.selectedRacer.key,
       GAME_WIDTH / 2,
       GAME_HEIGHT - 42,
     )
@@ -416,6 +404,16 @@ private selectedRacerKey: string = RACERS[0].key
       )
       .setDepth(30)
 
+    this.racerText = this.add
+      .text(20, 92, '', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setDepth(30)
+
     this.speedText = this.add
       .text(20, GAME_HEIGHT - 44, 'SPEED 000', {
         fontFamily: 'monospace',
@@ -455,6 +453,10 @@ private selectedRacerKey: string = RACERS[0].key
 
     this.speedText.setText(
       `SPEED ${direction}${speedPercent.toString().padStart(3, '0')}`,
+    )
+
+    this.racerText?.setText(
+      `${this.selectedRacer.name.toUpperCase()} // ${this.selectedRacer.weightClass.toUpperCase()}`,
     )
 
     const surfaceLabel =
