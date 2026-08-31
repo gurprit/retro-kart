@@ -14,6 +14,11 @@ type ItemBox = {
   active: boolean
 }
 
+type RouletteFrame = {
+  x: number
+  y: number
+}
+
 const PICKUP_RADIUS_RATIO = 0.035
 const ITEM_BOX_RESPAWN_MS = 5000
 
@@ -28,8 +33,30 @@ const EMPTY_PANEL_FRAME = ACTIVE_PANEL_FRAMES
 const PANEL_FRAME_COUNT = ACTIVE_PANEL_FRAMES + 1
 const PANEL_WORLD_SCALE = 1.05
 
-const ROULETTE_DURATION_MS = 1100
-const ROULETTE_STEP_MS = 110
+// Item Roulette.png uses 26x18 icon cells. The first icon row begins at y=19,
+// after the strip across the top of the source sheet.
+const ROULETTE_FRAME_WIDTH = 26
+const ROULETTE_FRAME_HEIGHT = 18
+const ROULETTE_START_Y = 19
+const ROULETTE_COLUMNS = 3
+const ROULETTE_ROWS = 4
+const ROULETTE_ICON_SCALE = 3
+const ROULETTE_DURATION_MS = 1250
+const ROULETTE_STEP_MS = 75
+
+const ROULETTE_FRAMES: RouletteFrame[] = Array.from(
+  { length: ROULETTE_COLUMNS * ROULETTE_ROWS },
+  (_, index) => ({
+    x: (index % ROULETTE_COLUMNS) * ROULETTE_FRAME_WIDTH,
+    y:
+      ROULETTE_START_Y +
+      Math.floor(index / ROULETTE_COLUMNS) * ROULETTE_FRAME_HEIGHT,
+  }),
+)
+
+// The uploader notes that the sheet follows roulette order, beginning with
+// Star and then Banana, so Banana is the second 26x18 cell.
+const BANANA_ROULETTE_FRAME = 1
 
 // Spread the row further apart so each panel keeps a visible strip of tarmac
 // between it and its neighbours once projected through Mode 7.
@@ -48,6 +75,7 @@ export class ItemSystem {
   private readonly pickupRadius: number
   private heldItem?: ItemType
   private rouletteRunning = false
+  private rouletteFrameIndex = 0
   private panelFrame = 0
   private panelTimer?: Phaser.Time.TimerEvent
   private rouletteTimer?: Phaser.Time.TimerEvent
@@ -76,19 +104,25 @@ export class ItemSystem {
     }))
 
     this.rouletteFrame = scene.add
-      .rectangle(90, 128, 110, 86, 0x101018, 0.92)
+      .rectangle(90, 128, 94, 72, 0x101018, 0.94)
       .setStrokeStyle(4, 0xffffff)
       .setDepth(40)
       .setVisible(false)
 
     this.rouletteSprite = scene.add
-      .image(90, 125, rouletteTextureKey)
+      .image(90, 124, rouletteTextureKey)
       .setDepth(41)
-      .setScale(1.7)
+      .setOrigin(0.5)
+      .setDisplaySize(
+        ROULETTE_FRAME_WIDTH * ROULETTE_ICON_SCALE,
+        ROULETTE_FRAME_HEIGHT * ROULETTE_ICON_SCALE,
+      )
       .setVisible(false)
 
+    this.applyRouletteFrame(BANANA_ROULETTE_FRAME)
+
     this.heldText = scene.add
-      .text(90, 170, '', {
+      .text(90, 166, '', {
         fontFamily: 'monospace',
         fontSize: '13px',
         color: '#ffffff',
@@ -163,20 +197,24 @@ export class ItemSystem {
 
   private startRoulette() {
     this.rouletteRunning = true
+    this.rouletteFrameIndex = 0
     this.rouletteFrame.setVisible(true)
     this.rouletteSprite.setVisible(true).setAlpha(1)
+    this.applyRouletteFrame(this.rouletteFrameIndex)
     this.heldText.setText('ROULETTE')
 
-    let step = 0
+    this.rouletteTimer?.destroy()
     this.rouletteTimer = this.scene.time.addEvent({
       delay: ROULETTE_STEP_MS,
       loop: true,
       callback: () => {
-        step += 1
-        this.rouletteSprite.setAlpha(step % 2 === 0 ? 1 : 0.55)
+        this.rouletteFrameIndex =
+          (this.rouletteFrameIndex + 1) % ROULETTE_FRAMES.length
+        this.applyRouletteFrame(this.rouletteFrameIndex)
       },
     })
 
+    this.rouletteFinishTimer?.destroy()
     this.rouletteFinishTimer = this.scene.time.delayedCall(
       ROULETTE_DURATION_MS,
       () => {
@@ -184,16 +222,29 @@ export class ItemSystem {
         this.rouletteTimer = undefined
         this.rouletteRunning = false
         this.heldItem = 'banana'
-        this.rouletteSprite.setAlpha(1)
+        this.applyRouletteFrame(BANANA_ROULETTE_FRAME)
         this.updateHeldHud()
       },
+    )
+  }
+
+  private applyRouletteFrame(index: number) {
+    const frame = ROULETTE_FRAMES[index]
+    if (!frame) return
+
+    this.rouletteSprite.setCrop(
+      frame.x,
+      frame.y,
+      ROULETTE_FRAME_WIDTH,
+      ROULETTE_FRAME_HEIGHT,
     )
   }
 
   private updateHeldHud() {
     if (this.heldItem) {
       this.rouletteFrame.setVisible(true)
-      this.rouletteSprite.setVisible(true)
+      this.rouletteSprite.setVisible(true).setAlpha(1)
+      this.applyRouletteFrame(BANANA_ROULETTE_FRAME)
       this.heldText.setText('BANANA  [SPACE]')
     } else {
       this.rouletteFrame.setVisible(false)
