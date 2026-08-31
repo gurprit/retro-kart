@@ -34,12 +34,16 @@ const EMPTY_PANEL_FRAME = ACTIVE_PANEL_FRAMES
 const PANEL_FRAME_COUNT = ACTIVE_PANEL_FRAMES + 1
 const PANEL_WORLD_SCALE = 1.05
 
-// Item Roulette.png contains complete 26x18 boxed power-up sprites. Register
-// each cell as a proper Phaser texture frame so the HUD remains completely
-// stationary while only the selected power-up image changes.
+// Item Roulette.png contains complete 26x18 boxed power-up sprites. The cells
+// have a one-pixel gutter between them, so the crop size stays 26x18 while the
+// source-grid stride is 27x19. Using the crop width itself as the stride caused
+// each icon after the first to drift progressively out of alignment.
 const ROULETTE_FRAME_WIDTH = 26
 const ROULETTE_FRAME_HEIGHT = 18
+const ROULETTE_START_X = 0
 const ROULETTE_START_Y = 19
+const ROULETTE_COLUMN_STRIDE = 27
+const ROULETTE_ROW_STRIDE = 19
 const ROULETTE_COLUMNS = 3
 const ROULETTE_ROWS = 4
 const ROULETTE_ICON_SCALE = 3
@@ -51,10 +55,12 @@ const ROULETTE_FRAMES: RouletteFrame[] = Array.from(
   { length: ROULETTE_COLUMNS * ROULETTE_ROWS },
   (_, index) => ({
     name: `${ROULETTE_FRAME_PREFIX}${index}`,
-    x: (index % ROULETTE_COLUMNS) * ROULETTE_FRAME_WIDTH,
+    x:
+      ROULETTE_START_X +
+      (index % ROULETTE_COLUMNS) * ROULETTE_COLUMN_STRIDE,
     y:
       ROULETTE_START_Y +
-      Math.floor(index / ROULETTE_COLUMNS) * ROULETTE_FRAME_HEIGHT,
+      Math.floor(index / ROULETTE_COLUMNS) * ROULETTE_ROW_STRIDE,
   }),
 )
 
