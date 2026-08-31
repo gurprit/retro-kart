@@ -8,6 +8,12 @@ export type TouchControlState = {
   powerslide: boolean
 }
 
+type DpadVisual = {
+  cross: Phaser.GameObjects.Graphics
+  shadow: Phaser.GameObjects.Graphics
+  arrows: Phaser.GameObjects.Text[]
+}
+
 export class TouchControls {
   readonly enabled: boolean
 
@@ -19,7 +25,7 @@ export class TouchControls {
   private powerslideDown = false
   private itemPressed = false
   private actionPointerId?: number
-  private joystickPointerId?: number
+  private dpadPointerId?: number
 
   private readonly uiObjects: Phaser.GameObjects.GameObject[] = []
 
@@ -37,7 +43,7 @@ export class TouchControls {
     if (portrait) {
       this.createPortraitGameBoyLayout()
     } else {
-      this.createLandscapeLayout()
+      this.createLandscapeHandheldLayout()
     }
   }
 
@@ -59,236 +65,232 @@ export class TouchControls {
 
   destroy() {
     this.releaseActionGesture()
-    this.releaseJoystick()
+    this.releaseDpad()
 
-    for (const object of this.uiObjects) {
-      object.destroy()
-    }
+    for (const object of this.uiObjects) object.destroy()
     this.uiObjects.length = 0
   }
 
   private createPortraitGameBoyLayout() {
     const width = this.scene.scale.width
+    const height = this.scene.scale.height
     const gameBottom = 600
-    const deckHeight = this.scene.scale.height - gameBottom
+    const deckHeight = height - gameBottom
 
-    const deck = this.scene.add.graphics().setDepth(70).setScrollFactor(0)
-    deck.fillStyle(0xb8b39f, 1)
-    deck.fillRect(0, gameBottom, width, deckHeight + 24)
-    deck.lineStyle(4, 0x777467, 1)
-    deck.lineBetween(0, gameBottom, width, gameBottom)
-    this.track(deck)
+    const shell = this.scene.add.graphics().setDepth(70).setScrollFactor(0)
+    shell.fillStyle(0xbdb9a8, 1)
+    shell.fillRect(0, gameBottom, width, deckHeight + 30)
+    shell.fillStyle(0x9d998b, 1)
+    shell.fillRect(0, gameBottom, width, 7)
+    shell.fillStyle(0xd4d0c1, 0.8)
+    shell.fillRect(0, gameBottom + 7, width, 3)
+    this.track(shell)
 
-    const deckLabel = this.scene.add
-      .text(width / 2, gameBottom + 36, 'RETRO KART', {
+    const brand = this.scene.add
+      .text(width / 2, gameBottom + 38, 'RETRO KART', {
         fontFamily: 'monospace',
         fontSize: '24px',
         fontStyle: 'bold',
-        color: '#4f486a',
+        color: '#51496d',
       })
       .setOrigin(0.5)
       .setDepth(72)
       .setScrollFactor(0)
-    this.track(deckLabel)
+    this.track(brand)
 
-    const joystickX = 165
-    const joystickY = gameBottom + 245
-    const actionX = width - 175
-    const actionY = gameBottom + 250
+    const dpadX = 168
+    const dpadY = gameBottom + 244
+    const actionX = width - 150
+    const actionY = gameBottom + 258
 
-    this.createJoystick(joystickX, joystickY, 1.08)
-    this.createSlideActionCluster(actionX, actionY, 1.05)
-    this.createItemButton(actionX - 128, actionY + 8, 42)
+    this.createDpad(dpadX, dpadY, 1.16)
+    this.createAButtonWithDrift(actionX, actionY, 1.08)
+    this.createBButton(actionX - 126, actionY - 28, 46)
+    this.createStartButton(width / 2 + 4, gameBottom + 350, 1)
+    this.createSpeakerGrille(width - 68, gameBottom + 356, 1)
 
-    const start = this.scene.add
-      .ellipse(width / 2 + 62, gameBottom + 345, 68, 26, 0x403f3a, 0.7)
-      .setStrokeStyle(2, 0xe4e0d3, 0.6)
-      .setDepth(80)
+    const accent = this.scene.add
+      .circle(32, gameBottom + 42, 6, 0x51496d, 0.9)
+      .setDepth(73)
       .setScrollFactor(0)
-      .setInteractive({ useHandCursor: false })
-    const startText = this.scene.add
-      .text(width / 2 + 62, gameBottom + 345, 'START', {
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        fontStyle: 'bold',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 2,
-      })
-      .setOrigin(0.5)
-      .setDepth(81)
-      .setScrollFactor(0)
-    this.track(start, startText)
+    this.track(accent)
   }
 
-  private createLandscapeLayout() {
+  private createLandscapeHandheldLayout() {
     const width = this.scene.scale.width
     const height = this.scene.scale.height
+    const wingWidth = Phaser.Math.Clamp(width * 0.16, 150, 210)
 
-    this.createJoystick(132, height - 94, 0.9)
+    const shell = this.scene.add.graphics().setDepth(70).setScrollFactor(0)
+    shell.fillStyle(0xbdb9a8, 0.98)
+    shell.fillRoundedRect(0, 0, wingWidth + 26, height, 36)
+    shell.fillRoundedRect(width - wingWidth - 26, 0, wingWidth + 26, height, 36)
 
-    const actionX = width - 112
-    const actionY = height - 92
-    this.createSlideActionCluster(actionX, actionY, 0.92)
-    this.createItemButton(actionX - 122, actionY + 4, 40)
+    shell.fillStyle(0x1b1b1b, 1)
+    shell.fillRoundedRect(wingWidth - 2, 10, width - wingWidth * 2 + 4, height - 20, 24)
+
+    shell.lineStyle(3, 0x858174, 1)
+    shell.strokeRoundedRect(0, 0, wingWidth + 26, height, 36)
+    shell.strokeRoundedRect(width - wingWidth - 26, 0, wingWidth + 26, height, 36)
+    this.track(shell)
+
+    const dpadScale = Phaser.Math.Clamp(height / 600, 0.74, 0.9)
+    this.createDpad(wingWidth * 0.53, height * 0.56, dpadScale)
+
+    const actionX = width - wingWidth * 0.5
+    const actionY = height * 0.64
+    this.createAButtonWithDrift(actionX, actionY, dpadScale * 0.98)
+    this.createBButton(actionX - 12, actionY - 122 * dpadScale, 39 * dpadScale)
+    this.createStartButton(width - wingWidth * 0.52, 58, 0.82)
+    this.createSpeakerGrille(width - wingWidth * 0.52, height - 48, 0.72)
+
+    const led = this.scene.add
+      .circle(wingWidth * 0.5, 33, 5, 0x51496d, 1)
+      .setDepth(75)
+      .setScrollFactor(0)
+    this.track(led)
   }
 
-  private createJoystick(x: number, y: number, scale: number) {
-    const baseRadius = 70 * scale
-    const gateRadius = 48 * scale
-    const capRadius = 34 * scale
-    const maxThrow = 34 * scale
+  private createDpad(x: number, y: number, scale: number) {
+    const arm = 39 * scale
+    const length = 108 * scale
+    const recessRadius = 79 * scale
+    const maxNudge = 7 * scale
 
-    const shadow = this.scene.add
-      .circle(x + 4 * scale, y + 7 * scale, baseRadius, 0x000000, 0.42)
+    const recessShadow = this.scene.add
+      .circle(x + 3, y + 5, recessRadius, 0x000000, 0.18)
+      .setDepth(77)
+      .setScrollFactor(0)
+    const recess = this.scene.add
+      .circle(x, y, recessRadius, 0xa6a293, 1)
+      .setStrokeStyle(2, 0xd8d4c5, 0.8)
       .setDepth(78)
       .setScrollFactor(0)
 
-    const base = this.scene.add
-      .circle(x, y, baseRadius, 0x272727, 0.88)
-      .setStrokeStyle(4, 0xd8d8d8, 0.68)
-      .setDepth(79)
-      .setScrollFactor(0)
+    const shadow = this.drawDpadCross(x + 5 * scale, y + 7 * scale, arm, length, 0x080808, 0.5, 79)
+    const cross = this.drawDpadCross(x, y, arm, length, 0x202020, 1, 80)
 
-    const gate = this.scene.add
-      .circle(x, y, gateRadius, 0x0c0c0c, 0.82)
-      .setStrokeStyle(3, 0x5e5e5e, 0.9)
-      .setDepth(80)
-      .setScrollFactor(0)
-
-    const notchStyle: Phaser.Types.GameObjects.Text.TextStyle = {
+    const arrowStyle: Phaser.Types.GameObjects.Text.TextStyle = {
       fontFamily: 'monospace',
-      fontSize: `${Math.round(16 * scale)}px`,
+      fontSize: `${Math.round(18 * scale)}px`,
       fontStyle: 'bold',
-      color: '#bcbcbc',
-      stroke: '#000000',
-      strokeThickness: 2,
+      color: '#555555',
+      stroke: '#080808',
+      strokeThickness: 1,
     }
 
-    const left = this.scene.add
-      .text(x - 55 * scale, y, '◀', notchStyle)
-      .setOrigin(0.5)
-      .setDepth(81)
-      .setScrollFactor(0)
-    const right = this.scene.add
-      .text(x + 55 * scale, y, '▶', notchStyle)
-      .setOrigin(0.5)
-      .setDepth(81)
-      .setScrollFactor(0)
-    const up = this.scene.add
-      .text(x, y - 55 * scale, '▲', notchStyle)
-      .setOrigin(0.5)
-      .setDepth(81)
-      .setScrollFactor(0)
-    const down = this.scene.add
-      .text(x, y + 55 * scale, '▼', notchStyle)
-      .setOrigin(0.5)
-      .setDepth(81)
-      .setScrollFactor(0)
+    const arrowSpecs: Array<[number, number, string]> = [
+      [0, -36, '▲'],
+      [36, 0, '▶'],
+      [0, 36, '▼'],
+      [-36, 0, '◀'],
+    ]
+    const arrows = arrowSpecs.map(([ox, oy, label]) =>
+      this.scene.add
+        .text(x + ox * scale, y + oy * scale, label, arrowStyle)
+        .setOrigin(0.5)
+        .setDepth(81)
+        .setScrollFactor(0),
+    )
 
-    const capShadow = this.scene.add
-      .circle(x + 3 * scale, y + 5 * scale, capRadius, 0x000000, 0.65)
+    const centre = this.scene.add
+      .circle(x, y, 15 * scale, 0x2d2d2d, 1)
+      .setStrokeStyle(2, 0x111111, 1)
       .setDepth(82)
       .setScrollFactor(0)
 
-    const cap = this.scene.add
-      .circle(x, y, capRadius, 0x181818, 1)
-      .setStrokeStyle(4, 0xf0f0f0, 0.62)
-      .setDepth(83)
-      .setScrollFactor(0)
-
-    const capInner = this.scene.add
-      .circle(x, y, capRadius * 0.58, 0x303030, 1)
-      .setStrokeStyle(2, 0x080808, 0.85)
-      .setDepth(84)
-      .setScrollFactor(0)
-
     const zone = this.scene.add
-      .zone(x, y, baseRadius * 2.6, baseRadius * 2.6)
-      .setDepth(86)
+      .zone(x, y, recessRadius * 2.35, recessRadius * 2.35)
+      .setDepth(88)
       .setScrollFactor(0)
       .setInteractive({ useHandCursor: false })
 
-    const setCapPosition = (offsetX: number, offsetY: number) => {
-      cap.setPosition(x + offsetX, y + offsetY)
-      capInner.setPosition(x + offsetX, y + offsetY)
-      capShadow.setPosition(
-        x + offsetX + 3 * scale,
-        y + offsetY + 5 * scale,
-      )
+    const visual: DpadVisual = { cross, shadow, arrows }
+
+    const setVisualOffset = (nx: number, ny: number) => {
+      const ox = nx * maxNudge
+      const oy = ny * maxNudge
+      cross.setPosition(ox, oy)
+      shadow.setPosition(ox * 0.3, oy * 0.3)
+      centre.setPosition(x + ox, y + oy)
+      arrows.forEach((arrow, index) => {
+        const [ax, ay] = arrowSpecs[index]
+        arrow.setPosition(x + ax * scale + ox, y + ay * scale + oy)
+      })
+      cross.setAlpha(0.94)
+      centre.setScale(0.96)
     }
 
-    const updateJoystick = (pointer: Phaser.Input.Pointer) => {
-      if (this.joystickPointerId !== pointer.id) return
+    const updateDpad = (pointer: Phaser.Input.Pointer) => {
+      if (this.dpadPointerId !== pointer.id) return
 
       const dx = pointer.x - x
       const dy = pointer.y - y
       const distance = Math.sqrt(dx * dx + dy * dy)
-      const clamp = distance > maxThrow && distance > 0
-        ? maxThrow / distance
-        : 1
-      const offsetX = dx * clamp
-      const offsetY = dy * clamp
+      const deadZone = 18 * scale
 
-      setCapPosition(offsetX, offsetY)
-
-      const normalizedX = offsetX / maxThrow
-      const normalizedY = offsetY / maxThrow
-
-      this.steerLeftDown = normalizedX < -0.28
-      this.steerRightDown = normalizedX > 0.28
-      this.brakeDown = normalizedY > 0.38
-
-      // Up remains a secondary throttle option for one-thumb play.
-      if (this.actionPointerId === undefined) {
-        this.accelerateDown = normalizedY < -0.45
+      if (distance < deadZone) {
+        this.steerLeftDown = false
+        this.steerRightDown = false
+        this.brakeDown = false
+        setVisualOffset(0, 0)
+        return
       }
 
-      const active =
-        this.steerLeftDown ||
-        this.steerRightDown ||
-        this.brakeDown ||
-        normalizedY < -0.45
+      const nx = dx / distance
+      const ny = dy / distance
 
-      cap.setFillStyle(active ? 0x242424 : 0x181818, 1)
-      gate.setStrokeStyle(3, active ? 0xbdbdbd : 0x5e5e5e, 0.9)
+      // Eight-way gate. Horizontal and vertical thresholds overlap so diagonal
+      // thumb positions naturally produce combined inputs.
+      this.steerLeftDown = nx < -0.34
+      this.steerRightDown = nx > 0.34
+      this.brakeDown = ny > 0.34
+
+      setVisualOffset(nx, ny)
     }
 
     zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (this.joystickPointerId !== undefined) return
-      this.scene.tweens.killTweensOf([cap, capInner, capShadow])
-      this.joystickPointerId = pointer.id
-      updateJoystick(pointer)
+      if (this.dpadPointerId !== undefined) return
+      this.scene.tweens.killTweensOf([cross, shadow, centre, ...arrows])
+      this.dpadPointerId = pointer.id
+      updateDpad(pointer)
     })
-
-    zone.on('pointermove', updateJoystick)
+    zone.on('pointermove', updateDpad)
 
     const release = (pointer?: Phaser.Input.Pointer) => {
       if (
         pointer &&
-        this.joystickPointerId !== undefined &&
-        pointer.id !== this.joystickPointerId
-      ) {
-        return
-      }
+        this.dpadPointerId !== undefined &&
+        pointer.id !== this.dpadPointerId
+      ) return
 
-      this.releaseJoystick()
-      cap.setFillStyle(0x181818, 1)
-      gate.setStrokeStyle(3, 0x5e5e5e, 0.9)
+      this.releaseDpad()
+      cross.setAlpha(1)
+      centre.setScale(1)
 
       this.scene.tweens.add({
-        targets: [cap, capInner],
-        x,
-        y,
-        duration: 90,
+        targets: [cross, shadow],
+        x: 0,
+        y: 0,
+        duration: 85,
         ease: 'Back.Out',
       })
       this.scene.tweens.add({
-        targets: capShadow,
-        x: x + 3 * scale,
-        y: y + 5 * scale,
-        duration: 90,
+        targets: centre,
+        x,
+        y,
+        duration: 85,
         ease: 'Back.Out',
+      })
+      arrows.forEach((arrow, index) => {
+        const [ax, ay] = arrowSpecs[index]
+        this.scene.tweens.add({
+          targets: arrow,
+          x: x + ax * scale,
+          y: y + ay * scale,
+          duration: 85,
+          ease: 'Back.Out',
+        })
       })
     }
 
@@ -296,100 +298,132 @@ export class TouchControls {
     zone.on('pointerout', release)
     zone.on('pointerupoutside', release)
 
-    this.track(
-      shadow,
-      base,
-      gate,
-      left,
-      right,
-      up,
-      down,
-      capShadow,
-      cap,
-      capInner,
-      zone,
-    )
+    this.track(recessShadow, recess, shadow, cross, ...arrows, centre, zone)
   }
 
-  private createSlideActionCluster(x: number, y: number, scale: number) {
-    const goRadius = 56 * scale
-    const driftRadius = 33 * scale
-    const driftY = y - 82 * scale
-    const gestureHeight = 180 * scale
+  private drawDpadCross(
+    x: number,
+    y: number,
+    arm: number,
+    length: number,
+    colour: number,
+    alpha: number,
+    depth: number,
+  ) {
+    const halfArm = arm / 2
+    const halfLength = length / 2
+    const g = this.scene.add.graphics().setDepth(depth).setScrollFactor(0)
+    g.fillStyle(colour, alpha)
+    g.fillRoundedRect(x - halfArm, y - halfLength, arm, length, 5)
+    g.fillRoundedRect(x - halfLength, y - halfArm, length, arm, 5)
+    g.lineStyle(2, 0x050505, 0.9)
+    g.strokeRoundedRect(x - halfArm, y - halfLength, arm, length, 5)
+    g.strokeRoundedRect(x - halfLength, y - halfArm, length, arm, 5)
+    return g
+  }
 
-    const go = this.scene.add
-      .circle(x, y, goRadius, 0x151515, 0.7)
-      .setStrokeStyle(3, 0xffffff, 0.65)
-      .setDepth(80)
-      .setScrollFactor(0)
+  private createAButtonWithDrift(x: number, y: number, scale: number) {
+    const radius = 59 * scale
+    const driftTop = y - 150 * scale
+    const driftThreshold = y - 55 * scale
 
-    const goText = this.scene.add
-      .text(x, y, 'GO', {
-        fontFamily: 'monospace',
-        fontSize: `${Math.round(18 * scale)}px`,
-        fontStyle: 'bold',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5)
-      .setDepth(82)
-      .setScrollFactor(0)
+    const track = this.scene.add.graphics().setDepth(78).setScrollFactor(0)
+    track.fillStyle(0x8f8b80, 0.34)
+    track.fillRoundedRect(
+      x - radius * 0.78,
+      driftTop,
+      radius * 1.56,
+      y - driftTop + radius * 0.78,
+      radius * 0.72,
+    )
+    track.lineStyle(2, 0x777269, 0.65)
+    track.strokeRoundedRect(
+      x - radius * 0.78,
+      driftTop,
+      radius * 1.56,
+      y - driftTop + radius * 0.78,
+      radius * 0.72,
+    )
 
-    const drift = this.scene.add
-      .circle(x, driftY, driftRadius, 0x3d3d3d, 0.72)
-      .setStrokeStyle(3, 0xffffff, 0.6)
-      .setDepth(80)
-      .setScrollFactor(0)
-
-    const driftText = this.scene.add
-      .text(x, driftY, 'DRIFT', {
+    const driftLabel = this.scene.add
+      .text(x, driftTop + 20 * scale, 'DRIFT', {
         fontFamily: 'monospace',
         fontSize: `${Math.round(11 * scale)}px`,
         fontStyle: 'bold',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 2,
+        color: '#5b5760',
       })
       .setOrigin(0.5)
-      .setDepth(82)
+      .setDepth(79)
       .setScrollFactor(0)
 
-    const hint = this.scene.add
-      .text(x, y - 45 * scale, '↑', {
+    const arrows = this.scene.add
+      .text(x, y - 88 * scale, '▲\n▲', {
         fontFamily: 'monospace',
-        fontSize: `${Math.round(17 * scale)}px`,
+        fontSize: `${Math.round(13 * scale)}px`,
         fontStyle: 'bold',
-        color: '#ffffff',
-        stroke: '#000000',
+        color: '#625b73',
+        align: 'center',
+        lineSpacing: -3,
+      })
+      .setOrigin(0.5)
+      .setAlpha(0.7)
+      .setDepth(79)
+      .setScrollFactor(0)
+
+    const shadow = this.scene.add
+      .circle(x + 5 * scale, y + 7 * scale, radius, 0x28121f, 0.75)
+      .setDepth(80)
+      .setScrollFactor(0)
+    const button = this.scene.add
+      .circle(x, y, radius, 0x8f285b, 1)
+      .setStrokeStyle(5 * scale, 0x3c142b, 1)
+      .setDepth(81)
+      .setScrollFactor(0)
+    const highlight = this.scene.add
+      .circle(x - 8 * scale, y - 10 * scale, radius * 0.72, 0xb74277, 0.38)
+      .setDepth(82)
+      .setScrollFactor(0)
+    const label = this.scene.add
+      .text(x, y, 'A', {
+        fontFamily: 'monospace',
+        fontSize: `${Math.round(35 * scale)}px`,
+        fontStyle: 'bold',
+        color: '#f4dce8',
+        stroke: '#5c1c3d',
         strokeThickness: 2,
       })
       .setOrigin(0.5)
-      .setAlpha(0.58)
-      .setDepth(82)
+      .setDepth(83)
       .setScrollFactor(0)
 
     const zone = this.scene.add
-      .zone(x, y - 40 * scale, goRadius * 2.15, gestureHeight)
-      .setDepth(84)
+      .zone(x, y - 55 * scale, radius * 2.25, 220 * scale)
+      .setDepth(89)
       .setScrollFactor(0)
       .setInteractive({ useHandCursor: false })
 
-    const driftThreshold = y - 48 * scale
+    const pressButton = (drifting: boolean) => {
+      const pressY = drifting ? -6 * scale : 4 * scale
+      button.setPosition(x, y + pressY).setScale(0.96)
+      highlight.setPosition(x - 8 * scale, y - 10 * scale + pressY).setScale(0.96)
+      label.setPosition(x, y + pressY).setScale(0.96)
+      shadow.setAlpha(drifting ? 0.3 : 0.45)
+      track.setAlpha(drifting ? 1 : 0.75)
+      arrows.setAlpha(drifting ? 1 : 0.7)
+      driftLabel.setColor(drifting ? '#33253f' : '#5b5760')
+    }
 
     const updateGesture = (pointer: Phaser.Input.Pointer) => {
       if (this.actionPointerId !== pointer.id) return
       this.accelerateDown = true
       this.powerslideDown = pointer.y <= driftThreshold
-      go.setAlpha(0.9)
-      drift.setAlpha(this.powerslideDown ? 0.95 : 0.72)
-      go.setScale(0.96)
-      drift.setScale(this.powerslideDown ? 0.94 : 1)
+      pressButton(this.powerslideDown)
     }
 
     zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (this.actionPointerId !== undefined) return
       this.actionPointerId = pointer.id
+      this.scene.tweens.killTweensOf([button, highlight, label, shadow])
       updateGesture(pointer)
     })
     zone.on('pointermove', updateGesture)
@@ -399,60 +433,131 @@ export class TouchControls {
         pointer &&
         this.actionPointerId !== undefined &&
         pointer.id !== this.actionPointerId
-      ) {
-        return
-      }
+      ) return
+
       this.releaseActionGesture()
-      go.setAlpha(0.7)
-      drift.setAlpha(0.72)
-      go.setScale(1)
-      drift.setScale(1)
+      track.setAlpha(1)
+      arrows.setAlpha(0.7)
+      driftLabel.setColor('#5b5760')
+      shadow.setAlpha(0.75)
+
+      this.scene.tweens.add({
+        targets: [button, label],
+        x,
+        y,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 80,
+        ease: 'Back.Out',
+      })
+      this.scene.tweens.add({
+        targets: highlight,
+        x: x - 8 * scale,
+        y: y - 10 * scale,
+        scaleX: 1,
+        scaleY: 1,
+        duration: 80,
+        ease: 'Back.Out',
+      })
     }
 
     zone.on('pointerup', release)
     zone.on('pointerout', release)
     zone.on('pointerupoutside', release)
 
-    this.track(go, goText, drift, driftText, hint, zone)
+    this.track(track, driftLabel, arrows, shadow, button, highlight, label, zone)
   }
 
-  private createItemButton(x: number, y: number, radius: number) {
-    const background = this.scene.add
-      .circle(x, y, radius, 0x1b1b1b, 0.72)
-      .setStrokeStyle(3, 0xffffff, 0.65)
+  private createBButton(x: number, y: number, radius: number) {
+    const shadow = this.scene.add
+      .circle(x + 4, y + 6, radius, 0x28121f, 0.72)
       .setDepth(80)
       .setScrollFactor(0)
+    const button = this.scene.add
+      .circle(x, y, radius, 0x862752, 1)
+      .setStrokeStyle(4, 0x3b1428, 1)
+      .setDepth(81)
+      .setScrollFactor(0)
       .setInteractive({ useHandCursor: false })
-
-    const text = this.scene.add
-      .text(x, y, 'ITEM', {
+    const highlight = this.scene.add
+      .circle(x - radius * 0.13, y - radius * 0.16, radius * 0.72, 0xb44474, 0.34)
+      .setDepth(82)
+      .setScrollFactor(0)
+    const label = this.scene.add
+      .text(x, y, 'B', {
         fontFamily: 'monospace',
-        fontSize: '12px',
+        fontSize: `${Math.round(radius * 0.58)}px`,
         fontStyle: 'bold',
-        color: '#ffffff',
-        stroke: '#000000',
+        color: '#f4dce8',
+        stroke: '#5c1c3d',
         strokeThickness: 2,
       })
       .setOrigin(0.5)
-      .setDepth(82)
+      .setDepth(83)
       .setScrollFactor(0)
 
-    background.on('pointerdown', () => {
-      background.setScale(0.93)
-      background.setAlpha(0.95)
+    button.on('pointerdown', () => {
+      button.setPosition(x, y + 4).setScale(0.94)
+      highlight.setPosition(x - radius * 0.13, y - radius * 0.16 + 4).setScale(0.94)
+      label.setPosition(x, y + 4).setScale(0.94)
+      shadow.setAlpha(0.38)
       this.itemPressed = true
     })
 
     const release = () => {
-      background.setScale(1)
-      background.setAlpha(0.72)
+      button.setPosition(x, y).setScale(1)
+      highlight.setPosition(x - radius * 0.13, y - radius * 0.16).setScale(1)
+      label.setPosition(x, y).setScale(1)
+      shadow.setAlpha(0.72)
     }
 
-    background.on('pointerup', release)
-    background.on('pointerout', release)
-    background.on('pointerupoutside', release)
+    button.on('pointerup', release)
+    button.on('pointerout', release)
+    button.on('pointerupoutside', release)
 
-    this.track(background, text)
+    this.track(shadow, button, highlight, label)
+  }
+
+  private createStartButton(x: number, y: number, scale: number) {
+    const shadow = this.scene.add
+      .ellipse(x + 2, y + 4, 72 * scale, 28 * scale, 0x000000, 0.35)
+      .setDepth(79)
+      .setScrollFactor(0)
+    const button = this.scene.add
+      .ellipse(x, y, 72 * scale, 28 * scale, 0x494641, 1)
+      .setStrokeStyle(2, 0x262522, 1)
+      .setDepth(80)
+      .setScrollFactor(0)
+    const text = this.scene.add
+      .text(x, y, 'START', {
+        fontFamily: 'monospace',
+        fontSize: `${Math.round(11 * scale)}px`,
+        fontStyle: 'bold',
+        color: '#dedbd2',
+      })
+      .setOrigin(0.5)
+      .setDepth(81)
+      .setScrollFactor(0)
+    this.track(shadow, button, text)
+  }
+
+  private createSpeakerGrille(x: number, y: number, scale: number) {
+    const grille = this.scene.add.graphics().setDepth(76).setScrollFactor(0)
+    grille.fillStyle(0x57544e, 0.9)
+    const cols = 4
+    const rows = 4
+    const gap = 10 * scale
+    const radius = 2.3 * scale
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < cols; col += 1) {
+        grille.fillCircle(
+          x + (col - 1.5) * gap,
+          y + (row - 1.5) * gap,
+          radius,
+        )
+      }
+    }
+    this.track(grille)
   }
 
   private releaseActionGesture() {
@@ -461,15 +566,11 @@ export class TouchControls {
     this.powerslideDown = false
   }
 
-  private releaseJoystick() {
-    this.joystickPointerId = undefined
+  private releaseDpad() {
+    this.dpadPointerId = undefined
     this.steerLeftDown = false
     this.steerRightDown = false
     this.brakeDown = false
-
-    if (this.actionPointerId === undefined) {
-      this.accelerateDown = false
-    }
   }
 
   private track(...objects: Phaser.GameObjects.GameObject[]) {
