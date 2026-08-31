@@ -25,6 +25,8 @@ export class TouchControls {
   private itemPressed = false
 
   private readonly buttons: TouchButton[] = []
+  private deck?: Phaser.GameObjects.Graphics
+  private deckLabel?: Phaser.GameObjects.Text
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene
@@ -34,43 +36,14 @@ export class TouchControls {
 
     if (!this.enabled) return
 
-    // Phaser starts with a small pointer pool. Extra pointers make steering,
-    // accelerating and drifting simultaneously reliable on phones/tablets.
     this.scene.input.addPointer(4)
 
-    this.createHoldButton(82, 510, 44, '◀', () => {
-      this.steerLeftDown = true
-    }, () => {
-      this.steerLeftDown = false
-    })
-
-    this.createHoldButton(184, 510, 44, '▶', () => {
-      this.steerRightDown = true
-    }, () => {
-      this.steerRightDown = false
-    })
-
-    this.createHoldButton(133, 420, 38, 'DRIFT', () => {
-      this.powerslideDown = true
-    }, () => {
-      this.powerslideDown = false
-    }, 13)
-
-    this.createHoldButton(716, 500, 50, 'GO', () => {
-      this.accelerateDown = true
-    }, () => {
-      this.accelerateDown = false
-    }, 17)
-
-    this.createHoldButton(610, 520, 42, 'BRAKE', () => {
-      this.brakeDown = true
-    }, () => {
-      this.brakeDown = false
-    }, 12)
-
-    this.createTapButton(696, 402, 38, 'ITEM', () => {
-      this.itemPressed = true
-    })
+    const portrait = this.scene.scale.height > 700
+    if (portrait) {
+      this.createPortraitGameBoyLayout()
+    } else {
+      this.createLandscapeLayout()
+    }
   }
 
   get state(): TouchControlState {
@@ -94,6 +67,112 @@ export class TouchControls {
       button.container.destroy(true)
     }
     this.buttons.length = 0
+    this.deck?.destroy()
+    this.deckLabel?.destroy()
+  }
+
+  private createPortraitGameBoyLayout() {
+    const width = this.scene.scale.width
+    const gameBottom = 600
+    const deckHeight = this.scene.scale.height - gameBottom
+
+    this.deck = this.scene.add.graphics().setDepth(70).setScrollFactor(0)
+    this.deck.fillStyle(0xb8b39f, 1)
+    this.deck.fillRoundedRect(0, gameBottom, width, deckHeight + 24, 0)
+    this.deck.lineStyle(4, 0x777467, 1)
+    this.deck.lineBetween(0, gameBottom, width, gameBottom)
+
+    this.deckLabel = this.scene.add
+      .text(width / 2, gameBottom + 36, 'RETRO KART', {
+        fontFamily: 'monospace',
+        fontSize: '24px',
+        fontStyle: 'bold',
+        color: '#4f486a',
+      })
+      .setOrigin(0.5)
+      .setDepth(72)
+      .setScrollFactor(0)
+
+    const dpadX = 175
+    const dpadY = gameBottom + 235
+    const actionX = width - 175
+    const actionY = gameBottom + 225
+
+    this.createHoldButton(dpadX - 62, dpadY, 48, '◀', () => {
+      this.steerLeftDown = true
+    }, () => {
+      this.steerLeftDown = false
+    })
+
+    this.createHoldButton(dpadX + 62, dpadY, 48, '▶', () => {
+      this.steerRightDown = true
+    }, () => {
+      this.steerRightDown = false
+    })
+
+    this.createHoldButton(dpadX, dpadY + 62, 44, '▼', () => {
+      this.brakeDown = true
+    }, () => {
+      this.brakeDown = false
+    }, 22)
+
+    this.createHoldButton(actionX + 48, actionY - 24, 50, 'A', () => {
+      this.accelerateDown = true
+    }, () => {
+      this.accelerateDown = false
+    }, 24)
+
+    this.createHoldButton(actionX - 56, actionY + 24, 46, 'B', () => {
+      this.powerslideDown = true
+    }, () => {
+      this.powerslideDown = false
+    }, 22)
+
+    this.createTapButton(width / 2 - 64, gameBottom + 340, 28, 'ITEM', () => {
+      this.itemPressed = true
+    })
+
+    this.createTapButton(width / 2 + 64, gameBottom + 340, 28, 'START', () => {})
+  }
+
+  private createLandscapeLayout() {
+    const width = this.scene.scale.width
+    const height = this.scene.scale.height
+    const margin = 72
+
+    this.createHoldButton(margin + 18, height - 92, 48, '◀', () => {
+      this.steerLeftDown = true
+    }, () => {
+      this.steerLeftDown = false
+    })
+
+    this.createHoldButton(margin + 132, height - 92, 48, '▶', () => {
+      this.steerRightDown = true
+    }, () => {
+      this.steerRightDown = false
+    })
+
+    this.createHoldButton(margin + 76, height - 190, 42, 'DRIFT', () => {
+      this.powerslideDown = true
+    }, () => {
+      this.powerslideDown = false
+    }, 13)
+
+    this.createHoldButton(width - margin - 10, height - 96, 54, 'GO', () => {
+      this.accelerateDown = true
+    }, () => {
+      this.accelerateDown = false
+    }, 17)
+
+    this.createHoldButton(width - margin - 124, height - 84, 46, 'BRAKE', () => {
+      this.brakeDown = true
+    }, () => {
+      this.brakeDown = false
+    }, 12)
+
+    this.createTapButton(width - margin - 16, height - 205, 42, 'ITEM', () => {
+      this.itemPressed = true
+    })
   }
 
   private createHoldButton(
