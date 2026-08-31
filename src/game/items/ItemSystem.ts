@@ -215,26 +215,22 @@ export class ItemSystem {
     const context = texture.context
     context.imageSmoothingEnabled = false
 
-    // Scroll one question mark continuously from fully left of the panel to
-    // fully right. More frames means only a couple of source pixels move on
-    // each tick, producing a much smoother track animation.
-    const startX = -18
-    const endX = PANEL_SIZE + 1
-
+    // Draw two identical question marks one panel-width apart. As one exits
+    // through the right edge, the next is already entering from the left, so
+    // the active tile never sits blank between animation cycles.
     for (let frame = 0; frame < ACTIVE_PANEL_FRAMES; frame += 1) {
       const frameX = frame * PANEL_SIZE
       this.drawPanelBase(context, frameX, true)
 
-      const progress = frame / (ACTIVE_PANEL_FRAMES - 1)
-      const glyphX = Math.round(
-        Phaser.Math.Linear(startX, endX, progress),
-      )
+      const progress = frame / ACTIVE_PANEL_FRAMES
+      const glyphX = Math.floor(progress * PANEL_SIZE)
 
       context.save()
       context.beginPath()
       context.rect(frameX, 0, PANEL_SIZE, PANEL_SIZE)
       context.clip()
       this.drawQuestionMark(context, frameX + glyphX, 5)
+      this.drawQuestionMark(context, frameX + glyphX - PANEL_SIZE, 5)
       context.restore()
     }
 
@@ -242,6 +238,11 @@ export class ItemSystem {
       context,
       EMPTY_PANEL_FRAME * PANEL_SIZE,
       false,
+    )
+    this.drawSadFace(
+      context,
+      EMPTY_PANEL_FRAME * PANEL_SIZE,
+      0,
     )
 
     texture.refresh()
@@ -262,11 +263,6 @@ export class ItemSystem {
     context.fillStyle = active ? '#9d1400' : '#690000'
     context.fillRect(x, PANEL_SIZE - 2, PANEL_SIZE, 2)
     context.fillRect(x + PANEL_SIZE - 2, 0, 2, PANEL_SIZE)
-
-    if (!active) {
-      context.fillStyle = '#710000'
-      context.fillRect(x + 10, 14, 12, 3)
-    }
   }
 
   private drawQuestionMark(
@@ -289,6 +285,21 @@ export class ItemSystem {
     for (const [px, py] of pixels) {
       context.fillRect(x + px * block, y + py * block, block, block)
     }
+  }
+
+  private drawSadFace(
+    context: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+  ) {
+    context.fillStyle = '#4b0000'
+
+    // Chunky pixel-art :( face for a depleted item panel.
+    context.fillRect(x + 8, y + 9, 4, 5)
+    context.fillRect(x + 20, y + 9, 4, 5)
+    context.fillRect(x + 10, y + 21, 3, 3)
+    context.fillRect(x + 13, y + 18, 6, 3)
+    context.fillRect(x + 19, y + 21, 3, 3)
   }
 
   private refreshGroundPanels() {
