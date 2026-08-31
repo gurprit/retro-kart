@@ -8,11 +8,6 @@ export type TouchControlState = {
   powerslide: boolean
 }
 
-type HoldCallbacks = {
-  onDown: () => void
-  onUp: () => void
-}
-
 export class TouchControls {
   readonly enabled: boolean
 
@@ -24,6 +19,7 @@ export class TouchControls {
   private powerslideDown = false
   private itemPressed = false
   private actionPointerId?: number
+  private joystickPointerId?: number
 
   private readonly uiObjects: Phaser.GameObjects.GameObject[] = []
 
@@ -63,6 +59,7 @@ export class TouchControls {
 
   destroy() {
     this.releaseActionGesture()
+    this.releaseJoystick()
 
     for (const object of this.uiObjects) {
       object.destroy()
@@ -94,12 +91,12 @@ export class TouchControls {
       .setScrollFactor(0)
     this.track(deckLabel)
 
-    const dpadX = 165
-    const dpadY = gameBottom + 245
+    const joystickX = 165
+    const joystickY = gameBottom + 245
     const actionX = width - 175
     const actionY = gameBottom + 250
 
-    this.createDPad(dpadX, dpadY, 1)
+    this.createJoystick(joystickX, joystickY, 1.08)
     this.createSlideActionCluster(actionX, actionY, 1.05)
     this.createItemButton(actionX - 128, actionY + 8, 42)
 
@@ -128,7 +125,7 @@ export class TouchControls {
     const width = this.scene.scale.width
     const height = this.scene.scale.height
 
-    this.createDPad(138, height - 92, 0.92)
+    this.createJoystick(132, height - 94, 0.9)
 
     const actionX = width - 112
     const actionY = height - 92
@@ -136,96 +133,182 @@ export class TouchControls {
     this.createItemButton(actionX - 122, actionY + 4, 40)
   }
 
-  private createDPad(x: number, y: number, scale: number) {
-    const arm = 54 * scale
-    const thickness = 58 * scale
-    const total = arm * 2 + thickness
+  private createJoystick(x: number, y: number, scale: number) {
+    const baseRadius = 70 * scale
+    const gateRadius = 48 * scale
+    const capRadius = 34 * scale
+    const maxThrow = 34 * scale
 
-    const graphics = this.scene.add.graphics().setDepth(80).setScrollFactor(0)
-    graphics.fillStyle(0x141414, 0.72)
-    graphics.lineStyle(3, 0xf2f2f2, 0.55)
-    graphics.fillRoundedRect(
-      x - thickness / 2,
-      y - total / 2,
-      thickness,
-      total,
-      9 * scale,
-    )
-    graphics.strokeRoundedRect(
-      x - thickness / 2,
-      y - total / 2,
-      thickness,
-      total,
-      9 * scale,
-    )
-    graphics.fillRoundedRect(
-      x - total / 2,
-      y - thickness / 2,
-      total,
-      thickness,
-      9 * scale,
-    )
-    graphics.strokeRoundedRect(
-      x - total / 2,
-      y - thickness / 2,
-      total,
-      thickness,
-      9 * scale,
-    )
-    graphics.fillStyle(0x090909, 0.82)
-    graphics.fillCircle(x, y, 18 * scale)
-    this.track(graphics)
+    const shadow = this.scene.add
+      .circle(x + 4 * scale, y + 7 * scale, baseRadius, 0x000000, 0.42)
+      .setDepth(78)
+      .setScrollFactor(0)
 
-    const glyphStyle: Phaser.Types.GameObjects.Text.TextStyle = {
+    const base = this.scene.add
+      .circle(x, y, baseRadius, 0x272727, 0.88)
+      .setStrokeStyle(4, 0xd8d8d8, 0.68)
+      .setDepth(79)
+      .setScrollFactor(0)
+
+    const gate = this.scene.add
+      .circle(x, y, gateRadius, 0x0c0c0c, 0.82)
+      .setStrokeStyle(3, 0x5e5e5e, 0.9)
+      .setDepth(80)
+      .setScrollFactor(0)
+
+    const notchStyle: Phaser.Types.GameObjects.Text.TextStyle = {
       fontFamily: 'monospace',
-      fontSize: `${Math.round(24 * scale)}px`,
+      fontSize: `${Math.round(16 * scale)}px`,
       fontStyle: 'bold',
-      color: '#ffffff',
+      color: '#bcbcbc',
       stroke: '#000000',
-      strokeThickness: 3,
+      strokeThickness: 2,
     }
 
-    const leftText = this.scene.add.text(x - arm, y, '◀', glyphStyle).setOrigin(0.5).setDepth(82).setScrollFactor(0)
-    const rightText = this.scene.add.text(x + arm, y, '▶', glyphStyle).setOrigin(0.5).setDepth(82).setScrollFactor(0)
-    const upText = this.scene.add.text(x, y - arm, '▲', glyphStyle).setOrigin(0.5).setDepth(82).setScrollFactor(0)
-    const downText = this.scene.add.text(x, y + arm, '▼', glyphStyle).setOrigin(0.5).setDepth(82).setScrollFactor(0)
-    this.track(leftText, rightText, upText, downText)
+    const left = this.scene.add
+      .text(x - 55 * scale, y, '◀', notchStyle)
+      .setOrigin(0.5)
+      .setDepth(81)
+      .setScrollFactor(0)
+    const right = this.scene.add
+      .text(x + 55 * scale, y, '▶', notchStyle)
+      .setOrigin(0.5)
+      .setDepth(81)
+      .setScrollFactor(0)
+    const up = this.scene.add
+      .text(x, y - 55 * scale, '▲', notchStyle)
+      .setOrigin(0.5)
+      .setDepth(81)
+      .setScrollFactor(0)
+    const down = this.scene.add
+      .text(x, y + 55 * scale, '▼', notchStyle)
+      .setOrigin(0.5)
+      .setDepth(81)
+      .setScrollFactor(0)
 
-    this.createHoldZone(x - arm, y, thickness, thickness, {
-      onDown: () => {
-        this.steerLeftDown = true
-      },
-      onUp: () => {
-        this.steerLeftDown = false
-      },
+    const capShadow = this.scene.add
+      .circle(x + 3 * scale, y + 5 * scale, capRadius, 0x000000, 0.65)
+      .setDepth(82)
+      .setScrollFactor(0)
+
+    const cap = this.scene.add
+      .circle(x, y, capRadius, 0x181818, 1)
+      .setStrokeStyle(4, 0xf0f0f0, 0.62)
+      .setDepth(83)
+      .setScrollFactor(0)
+
+    const capInner = this.scene.add
+      .circle(x, y, capRadius * 0.58, 0x303030, 1)
+      .setStrokeStyle(2, 0x080808, 0.85)
+      .setDepth(84)
+      .setScrollFactor(0)
+
+    const zone = this.scene.add
+      .zone(x, y, baseRadius * 2.6, baseRadius * 2.6)
+      .setDepth(86)
+      .setScrollFactor(0)
+      .setInteractive({ useHandCursor: false })
+
+    const setCapPosition = (offsetX: number, offsetY: number) => {
+      cap.setPosition(x + offsetX, y + offsetY)
+      capInner.setPosition(x + offsetX, y + offsetY)
+      capShadow.setPosition(
+        x + offsetX + 3 * scale,
+        y + offsetY + 5 * scale,
+      )
+    }
+
+    const updateJoystick = (pointer: Phaser.Input.Pointer) => {
+      if (this.joystickPointerId !== pointer.id) return
+
+      const dx = pointer.x - x
+      const dy = pointer.y - y
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      const clamp = distance > maxThrow && distance > 0
+        ? maxThrow / distance
+        : 1
+      const offsetX = dx * clamp
+      const offsetY = dy * clamp
+
+      setCapPosition(offsetX, offsetY)
+
+      const normalizedX = offsetX / maxThrow
+      const normalizedY = offsetY / maxThrow
+
+      this.steerLeftDown = normalizedX < -0.28
+      this.steerRightDown = normalizedX > 0.28
+      this.brakeDown = normalizedY > 0.38
+
+      // Up remains a secondary throttle option for one-thumb play.
+      if (this.actionPointerId === undefined) {
+        this.accelerateDown = normalizedY < -0.45
+      }
+
+      const active =
+        this.steerLeftDown ||
+        this.steerRightDown ||
+        this.brakeDown ||
+        normalizedY < -0.45
+
+      cap.setFillStyle(active ? 0x242424 : 0x181818, 1)
+      gate.setStrokeStyle(3, active ? 0xbdbdbd : 0x5e5e5e, 0.9)
+    }
+
+    zone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.joystickPointerId !== undefined) return
+      this.scene.tweens.killTweensOf([cap, capInner, capShadow])
+      this.joystickPointerId = pointer.id
+      updateJoystick(pointer)
     })
 
-    this.createHoldZone(x + arm, y, thickness, thickness, {
-      onDown: () => {
-        this.steerRightDown = true
-      },
-      onUp: () => {
-        this.steerRightDown = false
-      },
-    })
+    zone.on('pointermove', updateJoystick)
 
-    this.createHoldZone(x, y + arm, thickness, thickness, {
-      onDown: () => {
-        this.brakeDown = true
-      },
-      onUp: () => {
-        this.brakeDown = false
-      },
-    })
+    const release = (pointer?: Phaser.Input.Pointer) => {
+      if (
+        pointer &&
+        this.joystickPointerId !== undefined &&
+        pointer.id !== this.joystickPointerId
+      ) {
+        return
+      }
 
-    this.createHoldZone(x, y - arm, thickness, thickness, {
-      onDown: () => {
-        this.accelerateDown = true
-      },
-      onUp: () => {
-        this.accelerateDown = false
-      },
-    })
+      this.releaseJoystick()
+      cap.setFillStyle(0x181818, 1)
+      gate.setStrokeStyle(3, 0x5e5e5e, 0.9)
+
+      this.scene.tweens.add({
+        targets: [cap, capInner],
+        x,
+        y,
+        duration: 90,
+        ease: 'Back.Out',
+      })
+      this.scene.tweens.add({
+        targets: capShadow,
+        x: x + 3 * scale,
+        y: y + 5 * scale,
+        duration: 90,
+        ease: 'Back.Out',
+      })
+    }
+
+    zone.on('pointerup', release)
+    zone.on('pointerout', release)
+    zone.on('pointerupoutside', release)
+
+    this.track(
+      shadow,
+      base,
+      gate,
+      left,
+      right,
+      up,
+      down,
+      capShadow,
+      cap,
+      capInner,
+      zone,
+    )
   }
 
   private createSlideActionCluster(x: number, y: number, scale: number) {
@@ -372,31 +455,21 @@ export class TouchControls {
     this.track(background, text)
   }
 
-  private createHoldZone(
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    callbacks: HoldCallbacks,
-  ) {
-    const zone = this.scene.add
-      .zone(x, y, width, height)
-      .setDepth(84)
-      .setScrollFactor(0)
-      .setInteractive({ useHandCursor: false })
-
-    zone.on('pointerdown', callbacks.onDown)
-    zone.on('pointerup', callbacks.onUp)
-    zone.on('pointerout', callbacks.onUp)
-    zone.on('pointerupoutside', callbacks.onUp)
-
-    this.track(zone)
-  }
-
   private releaseActionGesture() {
     this.actionPointerId = undefined
     this.accelerateDown = false
     this.powerslideDown = false
+  }
+
+  private releaseJoystick() {
+    this.joystickPointerId = undefined
+    this.steerLeftDown = false
+    this.steerRightDown = false
+    this.brakeDown = false
+
+    if (this.actionPointerId === undefined) {
+      this.accelerateDown = false
+    }
   }
 
   private track(...objects: Phaser.GameObjects.GameObject[]) {
