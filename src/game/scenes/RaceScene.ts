@@ -31,12 +31,25 @@ const HORIZON_Y = 250
 const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
 const TRACK_TEXTURE_KEY = 'prototype-track'
 const COLLISION_TEXTURE_KEY = 'prototype-collision'
-const RACER_TEXTURE_KEY = 'prototype-racer'
 const ITEM_ROULETTE_TEXTURE_KEY = 'item-roulette'
 const PARTICLE_SHEET_URL = '/assets/effects/Particles.png'
 const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
 const NEAR_BACKGROUND_TEXTURE_KEY = 'prototype-near-background'
 const HARD_COLLISION_SPIN_SPEED = 0.48
+
+const RACERS = [
+  { key: 'racer-mario', file: 'Racers - Mario.png' },
+  { key: 'racer-luigi', file: 'Racers - Luigi.png' },
+  { key: 'racer-yoshi', file: 'Racers - Yoshi.png' },
+  { key: 'racer-toad', file: 'Racers - Toad.png' },
+  { key: 'racer-bowser', file: 'Racers - Bowser.png' },
+  { key: 'racer-donkey-kong-jr', file: 'Racers - Donkey Kong Jr..png' },
+  { key: 'racer-koopa-troopa', file: 'Racers - Koopa Troopa.png' },
+  {
+    key: 'racer-princess-toadstool',
+    file: 'Racers - Princess Toadstool _ Peach.png',
+  },
+] as const
 
 const START_GRID = {
   xRatio: 0.91,
@@ -79,6 +92,7 @@ export class RaceScene extends Phaser.Scene {
   private speedText?: Phaser.GameObjects.Text
   private surfaceText?: Phaser.GameObjects.Text
   private currentSurface: TrackSurface = 'road'
+  private selectedRacerKey = RACERS[0].key
 
   private cameraState: Mode7CameraState = {
     x: 0,
@@ -105,7 +119,11 @@ export class RaceScene extends Phaser.Scene {
     this.load.image(COLLISION_TEXTURE_KEY, '/assets/tracks/Mario Circuit 1 - Collision.png')
     this.load.image(FAR_BACKGROUND_TEXTURE_KEY, '/assets/backgrounds/Mario Circuit 1 - Far Background.png')
     this.load.image(NEAR_BACKGROUND_TEXTURE_KEY, '/assets/backgrounds/Mario Circuit 1 - Near Background.png')
-    this.load.image(RACER_TEXTURE_KEY, '/assets/characters/Racers - Mario.png')
+
+    for (const racer of RACERS) {
+      this.load.image(racer.key, `/assets/characters/${racer.file}`)
+    }
+
     this.load.image(ITEM_ROULETTE_TEXTURE_KEY, '/assets/items/Item Roulette.png')
   }
 
@@ -174,9 +192,10 @@ export class RaceScene extends Phaser.Scene {
     this.createKeyboardControls()
     this.createHud()
 
+    this.selectedRacerKey = Phaser.Utils.Array.GetRandom(RACERS).key
     this.racerSprite = new RacerSpriteView(
       this,
-      RACER_TEXTURE_KEY,
+      this.selectedRacerKey,
       GAME_WIDTH / 2,
       GAME_HEIGHT - 42,
     )
