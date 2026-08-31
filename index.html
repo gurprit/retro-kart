@@ -40,6 +40,26 @@
         display: block;
         touch-action: none;
       }
+
+      @media (orientation: portrait) and (pointer: coarse) {
+        body {
+          align-items: flex-start;
+        }
+
+        #game {
+          display: flex;
+          align-items: flex-start;
+          justify-content: center;
+        }
+      }
+
+      @media (orientation: landscape) and (pointer: coarse) {
+        #game {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+      }
     </style>
   </head>
 
