@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import {
   Mode7Renderer,
   type Mode7CameraState,
+  type Mode7GroundSprite,
 } from '../rendering/Mode7Renderer'
 
 export type ItemType = 'banana'
@@ -11,17 +12,33 @@ type ItemBox = {
   x: number
   y: number
   active: boolean
-  view: Phaser.GameObjects.Container
 }
 
 const PICKUP_RADIUS_RATIO = 0.035
-const ITEM_BOX_RESPAWN_MS = 5000
-const ROULETTE_DURATION_MS = 1100
-const ROULETTE_STEP_MS = 75
+const ITEM_BOX_RESPAWN_AFTER_USE_MS = 1200
+const PANEL_FRAME_MS = 90
+const ROULETTE_DURATION_MS = 1050
+const ROULETTE_STEP_MS = 70
+
+// The supplied Mario Circuit tileset crop is a 4 x 4 frame block. Each frame
+// is 16 x 8 source pixels: the top two rows are the live yellow question-panel
+// animation and the bottom two rows are the red/empty-panel animation.
+const PANEL_FRAME_WIDTH = 16
+const PANEL_FRAME_HEIGHT = 8
+const PANEL_COLUMNS = 4
+const ACTIVE_PANEL_FRAMES = 8
+const EMPTY_PANEL_FRAME_START = 8
+const EMPTY_PANEL_FRAMES = 8
+const PANEL_WORLD_SCALE = 2
+
+// Item Roulette.png is 80px wide. Cycle five 16px cells across the top row for
+// the fast roulette flicker, while the container itself performs the opening pop.
+const ROULETTE_CELL_SIZE = 16
+const ROULETTE_CELL_COUNT = 5
 
 // Mario Circuit 1 first item row, expressed in normalized track coordinates.
-// Keeping placement data separate from the pickup logic lets future tracks,
-// AI racers and multiplayer state provide their own item-box definitions.
+// Placement/state stay independent from PlayerKart so AI/network racers can
+// consume exactly the same item-box data later.
 const MARIO_CIRCUIT_ITEM_BOXES = [
   { id: 'mc1-1', xRatio: 0.86, yRatio: 0.5 },
   { id: 'mc1-2', xRatio: 0.885, yRatio: 0.5 },
@@ -33,12 +50,17 @@ const MARIO_CIRCUIT_ITEM_BOXES = [
 export class ItemSystem {
   private readonly scene: Phaser.Scene
   private readonly renderer: Mode7Renderer
+  private readonly tilesetTextureKey: string
   private readonly itemBoxes: ItemBox[]
   private readonly pickupRadius: number
   private heldItem?: ItemType
   private rouletteRunning = false
+  private collectedBox?: ItemBox
+  private panelFrame = 0
+  private panelAnimationTimer?: Phaser.Time.TimerEvent
   private rouletteTimer?: Phaser.Time.TimerEvent
   private rouletteFinishTimer?: Phaser.Time.TimerEvent
+  private respawnTimer?: Phaser.Time.TimerEvent
 
   private readonly rouletteFrame: Phaser.GameObjects.Rectangle
   private readonly rouletteSprite: Phaser.GameObjects.Image
@@ -49,9 +71,11 @@ export class ItemSystem {
     renderer: Mode7Renderer,
     worldScale: number,
     rouletteTextureKey: string,
+    tilesetTextureKey: string,
   ) {
     this.scene = scene
     this.renderer = renderer
+    this.tilesetTextureKey = tilesetTextureKey
     this.pickupRadius = worldScale * PICKUP_RADIUS_RATIO
 
     this.itemBoxes = MARIO_CIRCUIT_ITEM_BOXES.map((definition) => ({
@@ -59,26 +83,23 @@ export class ItemSystem {
       x: renderer.sourceWidth * definition.xRatio,
       y: renderer.sourceHeight * definition.yRatio,
       active: true,
-      view: this.createItemBoxView(),
     }))
 
     this.rouletteFrame = scene.add
-      .rectangle(90, 128, 84, 72, 0x101018, 0.92)
+      .rectangle(90, 128, 68, 68, 0x101018, 0.92)
       .setStrokeStyle(4, 0xffffff)
       .setDepth(40)
       .setVisible(false)
 
-    // The original SNES roulette sheet is 80x94. During the roulette we move
-    // a crop window through the sheet, which preserves the ripped pixel art
-    // without coupling gameplay state to individual sprite coordinates yet.
     this.rouletteSprite = scene.add
       .image(90, 128, rouletteTextureKey)
       .setDepth(41)
-      .setScale(2.2)
+      .setCrop(0, 0, ROULETTE_CELL_SIZE, ROULETTE_CELL_SIZE)
+      .setDisplaySize(48, 48)
       .setVisible(false)
 
     this.heldText = scene.add
-      .text(90, 172, '', {
+      .text(90, 168, '', {
         fontFamily: 'monospace',
         fontSize: '13px',
         color: '#ffffff',
@@ -87,11 +108,24 @@ export class ItemSystem {
       })
       .setOrigin(0.5, 0)
       .setDepth(42)
+
+    this.panelAnimationTimer = scene.time.addEvent({
+      delay: PANEL_FRAME_MS,
+      loop: true,
+      callback: () => {
+        this.panelFrame += 1
+        this.refreshGroundPanels()
+      },
+    })
+
+    this.refreshGroundPanels()
   }
 
-  update(playerX: number, playerY: number, camera: Mode7CameraState) {
-    this.updateItemBoxViews(camera)
-
+  update(
+    playerX: number,
+    playerY: number,
+    _camera?: Mode7CameraState,
+  ) {
     if (this.heldItem || this.rouletteRunning) {
       return
     }
@@ -120,7 +154,24 @@ export class ItemSystem {
 
     const item = this.heldItem
     this.heldItem = undefined
-    this.updateHeldHud()
+    this.closeRouletteHud()
+
+    // Keep the collected panel visibly empty until the item is actually used,
+    // then recharge it shortly afterwards. This makes the lifecycle obvious
+    // during this milestone and maps cleanly to server-authoritative respawns.
+    if (this.collectedBox) {
+      const boxToRespawn = this.collectedBox
+      this.collectedBox = undefined
+      this.respawnTimer?.destroy()
+      this.respawnTimer = this.scene.time.delayedCall(
+        ITEM_BOX_RESPAWN_AFTER_USE_MS,
+        () => {
+          boxToRespawn.active = true
+          this.refreshGroundPanels()
+        },
+      )
+    }
+
     return item
   }
 
@@ -129,13 +180,11 @@ export class ItemSystem {
   }
 
   destroy() {
+    this.panelAnimationTimer?.destroy()
     this.rouletteTimer?.destroy()
     this.rouletteFinishTimer?.destroy()
-
-    for (const itemBox of this.itemBoxes) {
-      itemBox.view.destroy()
-    }
-
+    this.respawnTimer?.destroy()
+    this.renderer.setGroundSprites(this.tilesetTextureKey, [])
     this.rouletteFrame.destroy()
     this.rouletteSprite.destroy()
     this.heldText.destroy()
@@ -143,32 +192,60 @@ export class ItemSystem {
 
   private collect(itemBox: ItemBox) {
     itemBox.active = false
-    itemBox.view.setVisible(false)
+    this.collectedBox = itemBox
+    this.refreshGroundPanels()
     this.startRoulette()
-
-    this.scene.time.delayedCall(ITEM_BOX_RESPAWN_MS, () => {
-      itemBox.active = true
-    })
   }
 
   private startRoulette() {
     this.rouletteRunning = true
-    this.rouletteFrame.setVisible(true)
-    this.rouletteSprite.setVisible(true)
-    this.heldText.setText('ROULETTE')
+    this.rouletteFrame.setVisible(true).setScale(0.12).setAlpha(1)
+    this.rouletteSprite
+      .setVisible(true)
+      .setAlpha(1)
+      .setCrop(0, 0, ROULETTE_CELL_SIZE, ROULETTE_CELL_SIZE)
+      .setScale(0.12)
+    this.heldText.setText('ROULETTE').setAlpha(0)
+
+    this.scene.tweens.add({
+      targets: [this.rouletteFrame, this.rouletteSprite],
+      scaleX: 1.12,
+      scaleY: 1.12,
+      duration: 110,
+      ease: 'Back.Out',
+      onComplete: () => {
+        this.scene.tweens.add({
+          targets: [this.rouletteFrame, this.rouletteSprite],
+          scaleX: 1,
+          scaleY: 1,
+          duration: 70,
+        })
+        this.heldText.setAlpha(1)
+      },
+    })
 
     let step = 0
+    this.rouletteTimer?.destroy()
     this.rouletteTimer = this.scene.time.addEvent({
       delay: ROULETTE_STEP_MS,
       loop: true,
       callback: () => {
         step += 1
-        const scale = step % 2 === 0 ? 2.05 : 2.35
-        this.rouletteSprite.setScale(scale)
-        this.rouletteSprite.setAngle((step % 3) - 1)
+        const cell = step % ROULETTE_CELL_COUNT
+        this.rouletteSprite.setCrop(
+          cell * ROULETTE_CELL_SIZE,
+          0,
+          ROULETTE_CELL_SIZE,
+          ROULETTE_CELL_SIZE,
+        )
+
+        const flashOn = step % 2 === 0
+        this.rouletteFrame.setAlpha(flashOn ? 1 : 0.58)
+        this.rouletteSprite.setAlpha(flashOn ? 1 : 0.72)
       },
     })
 
+    this.rouletteFinishTimer?.destroy()
     this.rouletteFinishTimer = this.scene.time.delayedCall(
       ROULETTE_DURATION_MS,
       () => {
@@ -176,62 +253,49 @@ export class ItemSystem {
         this.rouletteTimer = undefined
         this.rouletteRunning = false
         this.heldItem = 'banana'
-        this.rouletteSprite.setScale(2.2).setAngle(0)
-        this.updateHeldHud()
+        this.rouletteFrame.setAlpha(1)
+        this.rouletteSprite
+          .setAlpha(1)
+          .setCrop(0, 0, ROULETTE_CELL_SIZE, ROULETTE_CELL_SIZE)
+        this.heldText.setText('BANANA  [SPACE]')
       },
     )
   }
 
-  private updateHeldHud() {
-    if (this.heldItem) {
-      this.rouletteFrame.setVisible(true)
-      this.rouletteSprite.setVisible(true)
-      this.heldText.setText('BANANA  [SPACE]')
-    } else {
-      this.rouletteFrame.setVisible(false)
-      this.rouletteSprite.setVisible(false)
-      this.heldText.setText('')
-    }
+  private closeRouletteHud() {
+    this.scene.tweens.add({
+      targets: [this.rouletteFrame, this.rouletteSprite],
+      scaleX: 0.1,
+      scaleY: 0.1,
+      alpha: 0,
+      duration: 90,
+      onComplete: () => {
+        this.rouletteFrame.setVisible(false).setScale(1).setAlpha(1)
+        this.rouletteSprite.setVisible(false).setScale(1).setAlpha(1)
+      },
+    })
+    this.heldText.setText('')
   }
 
-  private updateItemBoxViews(camera: Mode7CameraState) {
-    for (const itemBox of this.itemBoxes) {
-      if (!itemBox.active) {
-        itemBox.view.setVisible(false)
-        continue
+  private refreshGroundPanels() {
+    const sprites: Mode7GroundSprite[] = this.itemBoxes.map((itemBox) => {
+      const animationFrame = itemBox.active
+        ? this.panelFrame % ACTIVE_PANEL_FRAMES
+        : EMPTY_PANEL_FRAME_START + (this.panelFrame % EMPTY_PANEL_FRAMES)
+      const column = animationFrame % PANEL_COLUMNS
+      const row = Math.floor(animationFrame / PANEL_COLUMNS)
+
+      return {
+        x: itemBox.x,
+        y: itemBox.y,
+        frameX: column * PANEL_FRAME_WIDTH,
+        frameY: row * PANEL_FRAME_HEIGHT,
+        frameWidth: PANEL_FRAME_WIDTH,
+        frameHeight: PANEL_FRAME_HEIGHT,
+        worldScale: PANEL_WORLD_SCALE,
       }
+    })
 
-      const projected = this.renderer.projectWorldPoint(itemBox.x, itemBox.y, camera)
-
-      if (!projected) {
-        itemBox.view.setVisible(false)
-        continue
-      }
-
-      const scale = Phaser.Math.Clamp(projected.scale * 1.7, 0.55, 1.8)
-      itemBox.view
-        .setVisible(true)
-        .setPosition(projected.x, projected.y)
-        .setScale(scale)
-        .setDepth(8 + projected.screenY / 1000)
-    }
-  }
-
-  private createItemBoxView() {
-    const container = this.scene.add.container(0, 0).setDepth(8)
-    const box = this.scene.add
-      .rectangle(0, 0, 24, 18, 0xf6d64a)
-      .setStrokeStyle(2, 0xffffff)
-    const question = this.scene.add
-      .text(0, -1, '?', {
-        fontFamily: 'monospace',
-        fontSize: '17px',
-        color: '#201608',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5)
-
-    container.add([box, question])
-    return container
+    this.renderer.setGroundSprites(this.tilesetTextureKey, sprites)
   }
 }
