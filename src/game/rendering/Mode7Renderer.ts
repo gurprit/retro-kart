@@ -34,6 +34,9 @@ export class Mode7Renderer {
   private readonly scene: Phaser.Scene
   private readonly sourcePixels: Uint8ClampedArray
   private readonly groundOverlayPixels: Uint8ClampedArray
+  private readonly outsidePixels?: Uint8ClampedArray
+  private readonly outsideWidth = 0
+  private readonly outsideHeight = 0
   private readonly outputTexture: Phaser.Textures.CanvasTexture
   private readonly outputContext: CanvasRenderingContext2D
   private readonly outputImageData: ImageData
@@ -52,6 +55,7 @@ export class Mode7Renderer {
     height: number,
     x: number,
     y: number,
+    outsideTextureKey?: string,
   ) {
     this.scene = scene
     this.width = width
@@ -88,6 +92,33 @@ export class Mode7Renderer {
     this.groundOverlayPixels = new Uint8ClampedArray(
       this.sourceWidth * this.sourceHeight * 4,
     )
+
+    if (outsideTextureKey) {
+      const outsideTexture = scene.textures.get(outsideTextureKey)
+      const outsideImage = outsideTexture.getSourceImage() as CanvasImageSource & {
+        width: number
+        height: number
+      }
+      const outsideCanvas = document.createElement('canvas')
+      outsideCanvas.width = outsideImage.width
+      outsideCanvas.height = outsideImage.height
+      const outsideContext = outsideCanvas.getContext('2d', {
+        willReadFrequently: true,
+      })
+
+      if (outsideContext) {
+        outsideContext.imageSmoothingEnabled = false
+        outsideContext.drawImage(outsideImage, 0, 0)
+        this.outsidePixels = outsideContext.getImageData(
+          0,
+          0,
+          outsideImage.width,
+          outsideImage.height,
+        ).data
+        ;(this as { outsideWidth: number }).outsideWidth = outsideImage.width
+        ;(this as { outsideHeight: number }).outsideHeight = outsideImage.height
+      }
+    }
 
     const outputTexture = scene.textures.createCanvas(
       'mode7-ground',
@@ -217,10 +248,20 @@ export class Mode7Renderer {
           sourceX >= this.sourceWidth ||
           sourceY >= this.sourceHeight
         ) {
-          outputPixels[outputIndex] = 27
-          outputPixels[outputIndex + 1] = 33
-          outputPixels[outputIndex + 2] = 24
-          outputPixels[outputIndex + 3] = 255
+          if (this.outsidePixels && this.outsideWidth > 0 && this.outsideHeight > 0) {
+            const tileX = ((sourceX % this.outsideWidth) + this.outsideWidth) % this.outsideWidth
+            const tileY = ((sourceY % this.outsideHeight) + this.outsideHeight) % this.outsideHeight
+            const outsideIndex = (tileY * this.outsideWidth + tileX) * 4
+            outputPixels[outputIndex] = this.outsidePixels[outsideIndex]
+            outputPixels[outputIndex + 1] = this.outsidePixels[outsideIndex + 1]
+            outputPixels[outputIndex + 2] = this.outsidePixels[outsideIndex + 2]
+            outputPixels[outputIndex + 3] = 255
+          } else {
+            outputPixels[outputIndex] = 27
+            outputPixels[outputIndex + 1] = 33
+            outputPixels[outputIndex + 2] = 24
+            outputPixels[outputIndex + 3] = 255
+          }
           continue
         }
 
