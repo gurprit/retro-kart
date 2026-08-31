@@ -15,6 +15,7 @@ type ItemBox = {
 }
 
 type RouletteFrame = {
+  name: string
   x: number
   y: number
 }
@@ -33,8 +34,9 @@ const EMPTY_PANEL_FRAME = ACTIVE_PANEL_FRAMES
 const PANEL_FRAME_COUNT = ACTIVE_PANEL_FRAMES + 1
 const PANEL_WORLD_SCALE = 1.05
 
-// Item Roulette.png uses 26x18 icon cells. The first icon row begins at y=19,
-// after the strip across the top of the source sheet.
+// Item Roulette.png contains complete 26x18 boxed power-up sprites. Register
+// each cell as a proper Phaser texture frame so the HUD remains completely
+// stationary while only the selected power-up image changes.
 const ROULETTE_FRAME_WIDTH = 26
 const ROULETTE_FRAME_HEIGHT = 18
 const ROULETTE_START_Y = 19
@@ -43,10 +45,12 @@ const ROULETTE_ROWS = 4
 const ROULETTE_ICON_SCALE = 3
 const ROULETTE_DURATION_MS = 1250
 const ROULETTE_STEP_MS = 75
+const ROULETTE_FRAME_PREFIX = 'roulette-item-'
 
 const ROULETTE_FRAMES: RouletteFrame[] = Array.from(
   { length: ROULETTE_COLUMNS * ROULETTE_ROWS },
   (_, index) => ({
+    name: `${ROULETTE_FRAME_PREFIX}${index}`,
     x: (index % ROULETTE_COLUMNS) * ROULETTE_FRAME_WIDTH,
     y:
       ROULETTE_START_Y +
@@ -54,8 +58,7 @@ const ROULETTE_FRAMES: RouletteFrame[] = Array.from(
   }),
 )
 
-// The uploader notes that the sheet follows roulette order, beginning with
-// Star and then Banana, so Banana is the second 26x18 cell.
+// The sheet follows roulette order, beginning with Star and then Banana.
 const BANANA_ROULETTE_FRAME = 1
 
 // Spread the row further apart so each panel keeps a visible strip of tarmac
@@ -81,7 +84,6 @@ export class ItemSystem {
   private rouletteTimer?: Phaser.Time.TimerEvent
   private rouletteFinishTimer?: Phaser.Time.TimerEvent
 
-  private readonly rouletteFrame: Phaser.GameObjects.Rectangle
   private readonly rouletteSprite: Phaser.GameObjects.Image
   private readonly heldText: Phaser.GameObjects.Text
 
@@ -95,6 +97,7 @@ export class ItemSystem {
     this.renderer = renderer
     this.pickupRadius = worldScale * PICKUP_RADIUS_RATIO
     this.createPanelTexture()
+    this.registerRouletteFrames(rouletteTextureKey)
 
     this.itemBoxes = MARIO_CIRCUIT_ITEM_BOXES.map((definition) => ({
       id: definition.id,
@@ -103,26 +106,15 @@ export class ItemSystem {
       active: true,
     }))
 
-    this.rouletteFrame = scene.add
-      .rectangle(90, 128, 94, 72, 0x101018, 0.94)
-      .setStrokeStyle(4, 0xffffff)
-      .setDepth(40)
-      .setVisible(false)
-
     this.rouletteSprite = scene.add
-      .image(90, 124, rouletteTextureKey)
+      .image(90, 124, rouletteTextureKey, ROULETTE_FRAMES[BANANA_ROULETTE_FRAME].name)
       .setDepth(41)
       .setOrigin(0.5)
-      .setDisplaySize(
-        ROULETTE_FRAME_WIDTH * ROULETTE_ICON_SCALE,
-        ROULETTE_FRAME_HEIGHT * ROULETTE_ICON_SCALE,
-      )
+      .setScale(ROULETTE_ICON_SCALE)
       .setVisible(false)
 
-    this.applyRouletteFrame(BANANA_ROULETTE_FRAME)
-
     this.heldText = scene.add
-      .text(90, 166, '', {
+      .text(90, 158, '', {
         fontFamily: 'monospace',
         fontSize: '13px',
         color: '#ffffff',
@@ -176,7 +168,6 @@ export class ItemSystem {
     this.rouletteTimer?.destroy()
     this.rouletteFinishTimer?.destroy()
     this.renderer.setGroundSprites(PANEL_TEXTURE_KEY, [])
-    this.rouletteFrame.destroy()
     this.rouletteSprite.destroy()
     this.heldText.destroy()
     if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) {
@@ -198,8 +189,7 @@ export class ItemSystem {
   private startRoulette() {
     this.rouletteRunning = true
     this.rouletteFrameIndex = 0
-    this.rouletteFrame.setVisible(true)
-    this.rouletteSprite.setVisible(true).setAlpha(1)
+    this.rouletteSprite.setVisible(true)
     this.applyRouletteFrame(this.rouletteFrameIndex)
     this.heldText.setText('ROULETTE')
 
@@ -228,26 +218,34 @@ export class ItemSystem {
     )
   }
 
+  private registerRouletteFrames(textureKey: string) {
+    const texture = this.scene.textures.get(textureKey)
+
+    for (const frame of ROULETTE_FRAMES) {
+      if (texture.has(frame.name)) continue
+      texture.add(
+        frame.name,
+        0,
+        frame.x,
+        frame.y,
+        ROULETTE_FRAME_WIDTH,
+        ROULETTE_FRAME_HEIGHT,
+      )
+    }
+  }
+
   private applyRouletteFrame(index: number) {
     const frame = ROULETTE_FRAMES[index]
     if (!frame) return
-
-    this.rouletteSprite.setCrop(
-      frame.x,
-      frame.y,
-      ROULETTE_FRAME_WIDTH,
-      ROULETTE_FRAME_HEIGHT,
-    )
+    this.rouletteSprite.setFrame(frame.name)
   }
 
   private updateHeldHud() {
     if (this.heldItem) {
-      this.rouletteFrame.setVisible(true)
-      this.rouletteSprite.setVisible(true).setAlpha(1)
+      this.rouletteSprite.setVisible(true)
       this.applyRouletteFrame(BANANA_ROULETTE_FRAME)
       this.heldText.setText('BANANA  [SPACE]')
     } else {
-      this.rouletteFrame.setVisible(false)
       this.rouletteSprite.setVisible(false)
       this.heldText.setText('')
     }
