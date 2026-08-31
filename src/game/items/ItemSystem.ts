@@ -16,13 +16,17 @@ type ItemBox = {
 
 const PICKUP_RADIUS_RATIO = 0.035
 const ITEM_BOX_RESPAWN_MS = 5000
-const PANEL_FRAME_MS = 300
+
+// Keep the ground-panel animation deliberately gentle. The earlier fast frame
+// cycling looked like texture corruption once perspective scaling was applied.
+const PANEL_FRAME_MS = 420
 const PANEL_TEXTURE_KEY = 'item-panels-complete'
-const PANEL_SIZE = 16
+const PANEL_SIZE = 32
 const ACTIVE_PANEL_FRAMES = 4
 const EMPTY_PANEL_FRAME_START = 4
 const EMPTY_PANEL_FRAMES = 2
 const PANEL_FRAME_COUNT = ACTIVE_PANEL_FRAMES + EMPTY_PANEL_FRAMES
+
 const ROULETTE_DURATION_MS = 1100
 const ROULETTE_STEP_MS = 110
 
@@ -66,7 +70,10 @@ export class ItemSystem {
       x: renderer.sourceWidth * definition.xRatio,
       y: renderer.sourceHeight * definition.yRatio,
       active: true,
-      view: scene.add.image(0, 0, PANEL_TEXTURE_KEY).setOrigin(0.5).setVisible(false),
+      view: scene.add
+        .image(0, 0, PANEL_TEXTURE_KEY)
+        .setOrigin(0.5)
+        .setVisible(false),
     }))
 
     this.rouletteFrame = scene.add
@@ -109,6 +116,7 @@ export class ItemSystem {
     const pickupRadiusSq = this.pickupRadius * this.pickupRadius
     for (const itemBox of this.itemBoxes) {
       if (!itemBox.active) continue
+
       const dx = playerX - itemBox.x
       const dy = playerY - itemBox.y
       if (dx * dx + dy * dy <= pickupRadiusSq) {
@@ -120,6 +128,7 @@ export class ItemSystem {
 
   useHeldItem() {
     if (!this.heldItem || this.rouletteRunning) return undefined
+
     const item = this.heldItem
     this.heldItem = undefined
     this.updateHeldHud()
@@ -134,16 +143,24 @@ export class ItemSystem {
     this.panelTimer?.destroy()
     this.rouletteTimer?.destroy()
     this.rouletteFinishTimer?.destroy()
-    for (const itemBox of this.itemBoxes) itemBox.view.destroy()
+
+    for (const itemBox of this.itemBoxes) {
+      itemBox.view.destroy()
+    }
+
     this.rouletteFrame.destroy()
     this.rouletteSprite.destroy()
     this.heldText.destroy()
-    if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) this.scene.textures.remove(PANEL_TEXTURE_KEY)
+
+    if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) {
+      this.scene.textures.remove(PANEL_TEXTURE_KEY)
+    }
   }
 
   private collect(itemBox: ItemBox) {
     itemBox.active = false
     this.startRoulette()
+
     this.scene.time.delayedCall(ITEM_BOX_RESPAWN_MS, () => {
       itemBox.active = true
     })
@@ -165,14 +182,17 @@ export class ItemSystem {
       },
     })
 
-    this.rouletteFinishTimer = this.scene.time.delayedCall(ROULETTE_DURATION_MS, () => {
-      this.rouletteTimer?.destroy()
-      this.rouletteTimer = undefined
-      this.rouletteRunning = false
-      this.heldItem = 'banana'
-      this.rouletteSprite.setAlpha(1)
-      this.updateHeldHud()
-    })
+    this.rouletteFinishTimer = this.scene.time.delayedCall(
+      ROULETTE_DURATION_MS,
+      () => {
+        this.rouletteTimer?.destroy()
+        this.rouletteTimer = undefined
+        this.rouletteRunning = false
+        this.heldItem = 'banana'
+        this.rouletteSprite.setAlpha(1)
+        this.updateHeldHud()
+      },
+    )
   }
 
   private updateHeldHud() {
@@ -189,7 +209,12 @@ export class ItemSystem {
 
   private updateItemBoxViews(camera: Mode7CameraState) {
     for (const itemBox of this.itemBoxes) {
-      const projected = this.renderer.projectWorldPoint(itemBox.x, itemBox.y, camera)
+      const projected = this.renderer.projectWorldPoint(
+        itemBox.x,
+        itemBox.y,
+        camera,
+      )
+
       if (!projected) {
         itemBox.view.setVisible(false)
         continue
@@ -197,14 +222,31 @@ export class ItemSystem {
 
       const frame = itemBox.active
         ? this.panelFrame % ACTIVE_PANEL_FRAMES
-        : EMPTY_PANEL_FRAME_START + (this.panelFrame % EMPTY_PANEL_FRAMES)
-      itemBox.view.setCrop(frame * PANEL_SIZE, 0, PANEL_SIZE, PANEL_SIZE)
+        : EMPTY_PANEL_FRAME_START +
+          (this.panelFrame % EMPTY_PANEL_FRAMES)
 
-      const perspectiveScale = Phaser.Math.Clamp(projected.scale * 1.4, 0.55, 2.4)
+      itemBox.view.setCrop(
+        frame * PANEL_SIZE,
+        0,
+        PANEL_SIZE,
+        PANEL_SIZE,
+      )
+
+      // Draw a complete square panel, then flatten only its screen-space height
+      // to make it read as painted onto the road. Width and height are derived
+      // from the same perspective scale, avoiding the old one-axis blow-ups.
+      const perspectiveScale = Phaser.Math.Clamp(
+        projected.scale,
+        0.42,
+        2.15,
+      )
+      const panelWidth = PANEL_SIZE * 1.55 * perspectiveScale
+      const panelHeight = PANEL_SIZE * 0.72 * perspectiveScale
+
       itemBox.view
         .setVisible(true)
         .setPosition(projected.x, projected.y)
-        .setDisplaySize(PANEL_SIZE * 2.1 * perspectiveScale, PANEL_SIZE * 0.9 * perspectiveScale)
+        .setDisplaySize(panelWidth, panelHeight)
         .setDepth(8 + projected.screenY / 1000)
     }
   }
@@ -227,33 +269,64 @@ export class ItemSystem {
       const active = frame < ACTIVE_PANEL_FRAMES
       const pulse = active ? frame : frame - EMPTY_PANEL_FRAME_START
 
-      context.fillStyle = active
-        ? pulse % 2 === 0 ? '#ffc000' : '#ffd000'
-        : pulse % 2 === 0 ? '#d40000' : '#ea0000'
-      context.fillRect(x, 0, PANEL_SIZE, PANEL_SIZE)
-
-      context.fillStyle = active ? '#ffffff' : '#ff9a00'
-      context.fillRect(x, 0, PANEL_SIZE - 1, 1)
-      context.fillRect(x, 0, 1, PANEL_SIZE - 1)
-
-      context.fillStyle = '#8b0000'
-      context.fillRect(x, PANEL_SIZE - 1, PANEL_SIZE, 1)
-      context.fillRect(x + PANEL_SIZE - 1, 0, 1, PANEL_SIZE)
-
-      if (active) {
-        context.fillStyle = '#050505'
-        const qx = x + (pulse === 1 ? 1 : 0)
-        context.fillRect(qx + 4, 3, 7, 2)
-        context.fillRect(qx + 9, 5, 3, 3)
-        context.fillRect(qx + 7, 7, 4, 2)
-        context.fillRect(qx + 6, 9, 3, 2)
-        context.fillRect(qx + 6, 12, 3, 2)
-      } else {
-        context.fillStyle = '#500000'
-        context.fillRect(x + 5, 7 + pulse, 6, 2)
-      }
+      this.drawPanelFrame(context, x, active, pulse)
     }
 
     texture.refresh()
+  }
+
+  private drawPanelFrame(
+    context: CanvasRenderingContext2D,
+    x: number,
+    active: boolean,
+    pulse: number,
+  ) {
+    const size = PANEL_SIZE
+
+    // Full panel based on the reconstructed reference: bright face, white
+    // upper/left lip and a dark red lower/right edge. Every animation frame is
+    // complete, so there are no component-tile seams to expose under scaling.
+    context.fillStyle = active
+      ? pulse % 2 === 0
+        ? '#ffc000'
+        : '#ffd020'
+      : pulse % 2 === 0
+        ? '#d40000'
+        : '#e01800'
+    context.fillRect(x, 0, size, size)
+
+    context.fillStyle = active ? '#ffffff' : '#ff8b00'
+    context.fillRect(x, 0, size - 2, 2)
+    context.fillRect(x, 0, 2, size - 2)
+
+    context.fillStyle = '#8b0000'
+    context.fillRect(x, size - 2, size, 2)
+    context.fillRect(x + size - 2, 0, 2, size)
+
+    if (!active) {
+      context.fillStyle = '#5a0000'
+      const slotY = 14 + pulse * 2
+      context.fillRect(x + 10, slotY, 12, 3)
+      return
+    }
+
+    // A chunky pixel question mark scaled from the supplied complete-block
+    // reference. Only tiny highlight shifts animate, keeping the silhouette
+    // stable rather than making the whole symbol jump around.
+    const nudge = pulse === 1 ? 1 : 0
+    const qx = x + nudge
+
+    context.fillStyle = '#050505'
+    context.fillRect(qx + 9, 7, 13, 4)
+    context.fillRect(qx + 19, 10, 5, 6)
+    context.fillRect(qx + 15, 14, 7, 4)
+    context.fillRect(qx + 13, 17, 5, 5)
+    context.fillRect(qx + 13, 25, 5, 4)
+
+    // Tiny glint variation gives movement without changing panel proportions.
+    if (pulse >= 2) {
+      context.fillStyle = '#fff7a0'
+      context.fillRect(x + 3 + (pulse - 2) * 2, 3, 5, 2)
+    }
   }
 }
