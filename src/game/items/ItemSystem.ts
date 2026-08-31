@@ -16,10 +16,14 @@ type ItemBox = {
 
 const PICKUP_RADIUS_RATIO = 0.035
 const ITEM_BOX_RESPAWN_MS = 5000
-const PANEL_FRAME_MS = 170
+
+// Runtime-generated frames let us animate much more smoothly than the original
+// partial tiles. 50ms = ~20fps, which is smooth while keeping the Mode 7
+// overlay refresh comfortably below the main render loop rate.
+const PANEL_FRAME_MS = 50
 const PANEL_TEXTURE_KEY = 'item-panels-mode7'
 const PANEL_SIZE = 32
-const ACTIVE_PANEL_FRAMES = 8
+const ACTIVE_PANEL_FRAMES = 24
 const EMPTY_PANEL_FRAME = ACTIVE_PANEL_FRAMES
 const PANEL_FRAME_COUNT = ACTIVE_PANEL_FRAMES + 1
 const PANEL_WORLD_SCALE = 1.05
@@ -27,12 +31,14 @@ const PANEL_WORLD_SCALE = 1.05
 const ROULETTE_DURATION_MS = 1100
 const ROULETTE_STEP_MS = 110
 
+// Spread the row further apart so each panel keeps a visible strip of tarmac
+// between it and its neighbours once projected through Mode 7.
 const MARIO_CIRCUIT_ITEM_BOXES = [
-  { id: 'mc1-1', xRatio: 0.85, yRatio: 0.5 },
-  { id: 'mc1-2', xRatio: 0.88, yRatio: 0.5 },
+  { id: 'mc1-1', xRatio: 0.83, yRatio: 0.5 },
+  { id: 'mc1-2', xRatio: 0.87, yRatio: 0.5 },
   { id: 'mc1-3', xRatio: 0.91, yRatio: 0.5 },
-  { id: 'mc1-4', xRatio: 0.94, yRatio: 0.5 },
-  { id: 'mc1-5', xRatio: 0.97, yRatio: 0.5 },
+  { id: 'mc1-4', xRatio: 0.95, yRatio: 0.5 },
+  { id: 'mc1-5', xRatio: 0.99, yRatio: 0.5 },
 ] as const
 
 export class ItemSystem {
@@ -209,21 +215,26 @@ export class ItemSystem {
     const context = texture.context
     context.imageSmoothingEnabled = false
 
-    const scrollPositions = [-18, -11, -4, 3, 10, 17, 24, 31]
+    // Scroll one question mark continuously from fully left of the panel to
+    // fully right. More frames means only a couple of source pixels move on
+    // each tick, producing a much smoother track animation.
+    const startX = -18
+    const endX = PANEL_SIZE + 1
 
     for (let frame = 0; frame < ACTIVE_PANEL_FRAMES; frame += 1) {
       const frameX = frame * PANEL_SIZE
       this.drawPanelBase(context, frameX, true)
 
+      const progress = frame / (ACTIVE_PANEL_FRAMES - 1)
+      const glyphX = Math.round(
+        Phaser.Math.Linear(startX, endX, progress),
+      )
+
       context.save()
       context.beginPath()
       context.rect(frameX, 0, PANEL_SIZE, PANEL_SIZE)
       context.clip()
-      this.drawQuestionMark(
-        context,
-        frameX + scrollPositions[frame],
-        5,
-      )
+      this.drawQuestionMark(context, frameX + glyphX, 5)
       context.restore()
     }
 
