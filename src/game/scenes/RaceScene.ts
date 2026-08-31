@@ -92,7 +92,7 @@ export class RaceScene extends Phaser.Scene {
   private speedText?: Phaser.GameObjects.Text
   private surfaceText?: Phaser.GameObjects.Text
   private currentSurface: TrackSurface = 'road'
-  private selectedRacerKey = RACERS[0].key
+private selectedRacerKey: string = RACERS[0].key
 
   private cameraState: Mode7CameraState = {
     x: 0,
@@ -192,7 +192,9 @@ export class RaceScene extends Phaser.Scene {
     this.createKeyboardControls()
     this.createHud()
 
-    this.selectedRacerKey = Phaser.Utils.Array.GetRandom(RACERS).key
+    const selectedRacer =
+      RACERS[Math.floor(Math.random() * RACERS.length)]
+    this.selectedRacerKey = selectedRacer.key
     this.racerSprite = new RacerSpriteView(
       this,
       this.selectedRacerKey,

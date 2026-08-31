@@ -8,12 +8,6 @@ export type TouchControlState = {
   powerslide: boolean
 }
 
-type DpadVisual = {
-  cross: Phaser.GameObjects.Graphics
-  shadow: Phaser.GameObjects.Graphics
-  arrows: Phaser.GameObjects.Text[]
-}
-
 export class TouchControls {
   readonly enabled: boolean
 
@@ -204,8 +198,6 @@ export class TouchControls {
       .setDepth(88)
       .setScrollFactor(0)
       .setInteractive({ useHandCursor: false })
-
-    const visual: DpadVisual = { cross, shadow, arrows }
 
     const setVisualOffset = (nx: number, ny: number) => {
       const ox = nx * maxNudge
