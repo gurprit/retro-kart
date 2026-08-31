@@ -17,13 +17,13 @@ type ItemBox = {
 const PICKUP_RADIUS_RATIO = 0.035
 const ITEM_BOX_RESPAWN_MS = 5000
 
-// Keep the ground-panel animation deliberately gentle. The earlier fast frame
-// cycling looked like texture corruption once perspective scaling was applied.
-const PANEL_FRAME_MS = 420
+// The active panel should read as a moving/scrolling question mark rather than
+// a rapid flash. Keep the panel background stable and move only the glyph.
+const PANEL_FRAME_MS = 170
 const PANEL_TEXTURE_KEY = 'item-panels-complete'
 const PANEL_SIZE = 32
-const ACTIVE_PANEL_FRAMES = 4
-const EMPTY_PANEL_FRAME_START = 4
+const ACTIVE_PANEL_FRAMES = 8
+const EMPTY_PANEL_FRAME_START = ACTIVE_PANEL_FRAMES
 const EMPTY_PANEL_FRAMES = 2
 const PANEL_FRAME_COUNT = ACTIVE_PANEL_FRAMES + EMPTY_PANEL_FRAMES
 
@@ -116,7 +116,6 @@ export class ItemSystem {
     const pickupRadiusSq = this.pickupRadius * this.pickupRadius
     for (const itemBox of this.itemBoxes) {
       if (!itemBox.active) continue
-
       const dx = playerX - itemBox.x
       const dy = playerY - itemBox.y
       if (dx * dx + dy * dy <= pickupRadiusSq) {
@@ -128,7 +127,6 @@ export class ItemSystem {
 
   useHeldItem() {
     if (!this.heldItem || this.rouletteRunning) return undefined
-
     const item = this.heldItem
     this.heldItem = undefined
     this.updateHeldHud()
@@ -143,15 +141,10 @@ export class ItemSystem {
     this.panelTimer?.destroy()
     this.rouletteTimer?.destroy()
     this.rouletteFinishTimer?.destroy()
-
-    for (const itemBox of this.itemBoxes) {
-      itemBox.view.destroy()
-    }
-
+    for (const itemBox of this.itemBoxes) itemBox.view.destroy()
     this.rouletteFrame.destroy()
     this.rouletteSprite.destroy()
     this.heldText.destroy()
-
     if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) {
       this.scene.textures.remove(PANEL_TEXTURE_KEY)
     }
@@ -160,7 +153,6 @@ export class ItemSystem {
   private collect(itemBox: ItemBox) {
     itemBox.active = false
     this.startRoulette()
-
     this.scene.time.delayedCall(ITEM_BOX_RESPAWN_MS, () => {
       itemBox.active = true
     })
@@ -232,21 +224,21 @@ export class ItemSystem {
         PANEL_SIZE,
       )
 
-      // Draw a complete square panel, then flatten only its screen-space height
-      // to make it read as painted onto the road. Width and height are derived
-      // from the same perspective scale, avoiding the old one-axis blow-ups.
+      // Make the panels much more substantial on screen. They remain flatter
+      // vertically than horizontally so they still read as painted track tiles.
       const perspectiveScale = Phaser.Math.Clamp(
-        projected.scale,
-        0.42,
-        2.15,
+        projected.scale * 1.55,
+        0.72,
+        2.8,
       )
-      const panelWidth = PANEL_SIZE * 1.55 * perspectiveScale
-      const panelHeight = PANEL_SIZE * 0.72 * perspectiveScale
 
       itemBox.view
         .setVisible(true)
         .setPosition(projected.x, projected.y)
-        .setDisplaySize(panelWidth, panelHeight)
+        .setDisplaySize(
+          PANEL_SIZE * 3.6 * perspectiveScale,
+          PANEL_SIZE * 1.35 * perspectiveScale,
+        )
         .setDepth(8 + projected.screenY / 1000)
     }
   }
@@ -267,66 +259,53 @@ export class ItemSystem {
     for (let frame = 0; frame < PANEL_FRAME_COUNT; frame += 1) {
       const x = frame * PANEL_SIZE
       const active = frame < ACTIVE_PANEL_FRAMES
-      const pulse = active ? frame : frame - EMPTY_PANEL_FRAME_START
 
-      this.drawPanelFrame(context, x, active, pulse)
+      context.fillStyle = active ? '#ffc000' : '#d90000'
+      context.fillRect(x, 0, PANEL_SIZE, PANEL_SIZE)
+
+      context.fillStyle = active ? '#ffffff' : '#ff9300'
+      context.fillRect(x, 0, PANEL_SIZE - 2, 2)
+      context.fillRect(x, 0, 2, PANEL_SIZE - 2)
+
+      context.fillStyle = active ? '#9d1400' : '#690000'
+      context.fillRect(x, PANEL_SIZE - 2, PANEL_SIZE, 2)
+      context.fillRect(x + PANEL_SIZE - 2, 0, 2, PANEL_SIZE)
+
+      if (active) {
+        // Eight frames move the same question mark from left to right. Portions
+        // naturally clip at the panel edges, creating the intended scrolling
+        // effect without changing the panel colour itself.
+        const scrollX = -10 + frame * 7
+        this.drawQuestionMark(context, x + scrollX, 5)
+      } else {
+        const emptyPulse = frame - EMPTY_PANEL_FRAME_START
+        context.fillStyle = '#710000'
+        context.fillRect(x + 10, 14 + emptyPulse, 12, 3)
+      }
     }
 
     texture.refresh()
   }
 
-  private drawPanelFrame(
+  private drawQuestionMark(
     context: CanvasRenderingContext2D,
     x: number,
-    active: boolean,
-    pulse: number,
+    y: number,
   ) {
-    const size = PANEL_SIZE
-
-    // Full panel based on the reconstructed reference: bright face, white
-    // upper/left lip and a dark red lower/right edge. Every animation frame is
-    // complete, so there are no component-tile seams to expose under scaling.
-    context.fillStyle = active
-      ? pulse % 2 === 0
-        ? '#ffc000'
-        : '#ffd020'
-      : pulse % 2 === 0
-        ? '#d40000'
-        : '#e01800'
-    context.fillRect(x, 0, size, size)
-
-    context.fillStyle = active ? '#ffffff' : '#ff8b00'
-    context.fillRect(x, 0, size - 2, 2)
-    context.fillRect(x, 0, 2, size - 2)
-
-    context.fillStyle = '#8b0000'
-    context.fillRect(x, size - 2, size, 2)
-    context.fillRect(x + size - 2, 0, 2, size)
-
-    if (!active) {
-      context.fillStyle = '#5a0000'
-      const slotY = 14 + pulse * 2
-      context.fillRect(x + 10, slotY, 12, 3)
-      return
-    }
-
-    // A chunky pixel question mark scaled from the supplied complete-block
-    // reference. Only tiny highlight shifts animate, keeping the silhouette
-    // stable rather than making the whole symbol jump around.
-    const nudge = pulse === 1 ? 1 : 0
-    const qx = x + nudge
-
     context.fillStyle = '#050505'
-    context.fillRect(qx + 9, 7, 13, 4)
-    context.fillRect(qx + 19, 10, 5, 6)
-    context.fillRect(qx + 15, 14, 7, 4)
-    context.fillRect(qx + 13, 17, 5, 5)
-    context.fillRect(qx + 13, 25, 5, 4)
 
-    // Tiny glint variation gives movement without changing panel proportions.
-    if (pulse >= 2) {
-      context.fillStyle = '#fff7a0'
-      context.fillRect(x + 3 + (pulse - 2) * 2, 3, 5, 2)
+    const block = 3
+    const pixels = [
+      [1, 0], [2, 0], [3, 0], [4, 0],
+      [0, 1], [4, 1],
+      [3, 2], [4, 2],
+      [2, 3], [3, 3],
+      [2, 4],
+      [2, 6],
+    ] as const
+
+    for (const [px, py] of pixels) {
+      context.fillRect(x + px * block, y + py * block, block, block)
     }
   }
 }
