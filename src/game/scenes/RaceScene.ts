@@ -21,14 +21,11 @@ const TRACK_TEXTURE_KEY = 'prototype-track'
 const COLLISION_TEXTURE_KEY = 'prototype-collision'
 const RACER_TEXTURE_KEY = 'prototype-racer'
 const ITEM_ROULETTE_TEXTURE_KEY = 'item-roulette'
-const MARIO_CIRCUIT_TILESET_KEY = 'mario-circuit-tileset'
 const PARTICLE_SHEET_URL = '/assets/effects/Particles.png'
 const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
 const NEAR_BACKGROUND_TEXTURE_KEY = 'prototype-near-background'
 const HARD_COLLISION_SPIN_SPEED = 0.48
 
-// Mario Circuit 1 start grid. Keep these normalized so a small future crop of
-// the source map does not require rewriting gameplay coordinates.
 const START_GRID = {
   xRatio: 0.91,
   yRatio: 0.66,
@@ -36,26 +33,10 @@ const START_GRID = {
 } as const
 
 const SURFACE_HANDLING = {
-  road: {
-    speedMultiplier: 1,
-    gripMultiplier: 1,
-    dragMultiplier: 1,
-  },
-  offRoad: {
-    speedMultiplier: 0.58,
-    gripMultiplier: 0.7,
-    dragMultiplier: 2.2,
-  },
-  barrier: {
-    speedMultiplier: 0.4,
-    gripMultiplier: 0.6,
-    dragMultiplier: 3,
-  },
-  void: {
-    speedMultiplier: 0.42,
-    gripMultiplier: 0.55,
-    dragMultiplier: 2.8,
-  },
+  road: { speedMultiplier: 1, gripMultiplier: 1, dragMultiplier: 1 },
+  offRoad: { speedMultiplier: 0.58, gripMultiplier: 0.7, dragMultiplier: 2.2 },
+  barrier: { speedMultiplier: 0.4, gripMultiplier: 0.6, dragMultiplier: 3 },
+  void: { speedMultiplier: 0.42, gripMultiplier: 0.55, dragMultiplier: 2.8 },
 } as const
 
 export class RaceScene extends Phaser.Scene {
@@ -91,46 +72,17 @@ export class RaceScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image(
-      TRACK_TEXTURE_KEY,
-      '/assets/tracks/Mario Circuit 1.png',
-    )
-    this.load.image(
-      COLLISION_TEXTURE_KEY,
-      '/assets/tracks/Mario Circuit 1 - Collision.png',
-    )
-    this.load.image(
-      FAR_BACKGROUND_TEXTURE_KEY,
-      '/assets/backgrounds/Mario Circuit 1 - Far Background.png',
-    )
-    this.load.image(
-      NEAR_BACKGROUND_TEXTURE_KEY,
-      '/assets/backgrounds/Mario Circuit 1 - Near Background.png',
-    )
-    this.load.image(
-      RACER_TEXTURE_KEY,
-      '/assets/characters/Racers - Mario.png',
-    )
-    this.load.image(
-      ITEM_ROULETTE_TEXTURE_KEY,
-      '/assets/items/Item Roulette.png',
-    )
-    this.load.image(
-      MARIO_CIRCUIT_TILESET_KEY,
-      '/assets/tilesets/Mario Circuit.png',
-    )
+    this.load.image(TRACK_TEXTURE_KEY, '/assets/tracks/Mario Circuit 1.png')
+    this.load.image(COLLISION_TEXTURE_KEY, '/assets/tracks/Mario Circuit 1 - Collision.png')
+    this.load.image(FAR_BACKGROUND_TEXTURE_KEY, '/assets/backgrounds/Mario Circuit 1 - Far Background.png')
+    this.load.image(NEAR_BACKGROUND_TEXTURE_KEY, '/assets/backgrounds/Mario Circuit 1 - Near Background.png')
+    this.load.image(RACER_TEXTURE_KEY, '/assets/characters/Racers - Mario.png')
+    this.load.image(ITEM_ROULETTE_TEXTURE_KEY, '/assets/items/Item Roulette.png')
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#67b7e8')
-
-    this.add.rectangle(
-      GAME_WIDTH / 2,
-      HORIZON_Y / 2,
-      GAME_WIDTH,
-      HORIZON_Y,
-      0x67b7e8,
-    )
+    this.add.rectangle(GAME_WIDTH / 2, HORIZON_Y / 2, GAME_WIDTH, HORIZON_Y, 0x67b7e8)
 
     this.parallaxBackground = new ParallaxBackground(
       this,
@@ -141,13 +93,7 @@ export class RaceScene extends Phaser.Scene {
     )
 
     this.add
-      .rectangle(
-        GAME_WIDTH / 2,
-        HORIZON_Y - 8,
-        GAME_WIDTH,
-        16,
-        0x4e8d47,
-      )
+      .rectangle(GAME_WIDTH / 2, HORIZON_Y - 8, GAME_WIDTH, 16, 0x4e8d47)
       .setDepth(4)
 
     this.mode7Renderer = new Mode7Renderer(
@@ -177,10 +123,7 @@ export class RaceScene extends Phaser.Scene {
       worldScale,
     )
 
-    this.currentSurface = this.trackSurfaceMap.sample(
-      this.playerKart.x,
-      this.playerKart.y,
-    )
+    this.currentSurface = this.trackSurfaceMap.sample(this.playerKart.x, this.playerKart.y)
 
     this.syncCameraToKart()
     this.createKeyboardControls()
@@ -205,7 +148,6 @@ export class RaceScene extends Phaser.Scene {
       this.mode7Renderer,
       worldScale,
       ITEM_ROULETTE_TEXTURE_KEY,
-      MARIO_CIRCUIT_TILESET_KEY,
     )
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -215,11 +157,7 @@ export class RaceScene extends Phaser.Scene {
 
     this.parallaxBackground.update(this.cameraState.angle)
     this.mode7Renderer.render(this.cameraState)
-    this.itemSystem.update(
-      this.playerKart.x,
-      this.playerKart.y,
-      this.cameraState,
-    )
+    this.itemSystem.update(this.playerKart.x, this.playerKart.y, this.cameraState)
     this.updateHud()
   }
 
@@ -239,11 +177,7 @@ export class RaceScene extends Phaser.Scene {
     const steerRight = this.cursors.right.isDown || this.wasd.right.isDown
     const powerslide = this.slideKey?.isDown ?? false
 
-    this.currentSurface = this.trackSurfaceMap.sample(
-      this.playerKart.x,
-      this.playerKart.y,
-    )
-
+    this.currentSurface = this.trackSurfaceMap.sample(this.playerKart.x, this.playerKart.y)
     const previousX = this.playerKart.x
     const previousY = this.playerKart.y
 
@@ -259,136 +193,65 @@ export class RaceScene extends Phaser.Scene {
       SURFACE_HANDLING[this.currentSurface],
     )
 
-    const nextX = this.playerKart.x
-    const nextY = this.playerKart.y
-    const impactSpeedRatio = Math.abs(this.playerKart.speedRatio)
-    const hitBarrier = this.trackSurfaceMap.collidesAlongSegment(
-      previousX,
-      previousY,
-      nextX,
-      nextY,
-    )
-
-    if (hitBarrier) {
-      this.playerKart.applyCollision(previousX, previousY)
-
-      if (
-        impactSpeedRatio >= HARD_COLLISION_SPIN_SPEED &&
-        !this.racerSprite?.isSpinning
-      ) {
-        this.racerSprite?.triggerSpin()
-      }
-
-      this.currentSurface = this.trackSurfaceMap.sample(previousX, previousY)
+    const nextSurface = this.trackSurfaceMap.sample(this.playerKart.x, this.playerKart.y)
+    if (nextSurface === 'barrier' || nextSurface === 'void') {
+      const impactSpeed = Math.abs(this.playerKart.speed)
+      this.playerKart.x = previousX
+      this.playerKart.y = previousY
+      this.playerKart.applyCollision()
+      if (impactSpeed >= HARD_COLLISION_SPIN_SPEED) this.racerSprite?.triggerSpin()
     } else {
-      this.currentSurface = this.trackSurfaceMap.sample(nextX, nextY)
+      this.currentSurface = nextSurface
     }
 
     this.syncCameraToKart()
     this.parallaxBackground?.update(this.cameraState.angle)
 
-    if (
-      this.useItemKey &&
-      Phaser.Input.Keyboard.JustDown(this.useItemKey)
-    ) {
+    if (this.useItemKey && Phaser.Input.Keyboard.JustDown(this.useItemKey)) {
       this.itemSystem?.useHeldItem()
     }
 
-    this.itemSystem?.update(
-      this.playerKart.x,
-      this.playerKart.y,
-      this.cameraState,
-    )
-
-    let steerDirection = 0
-
-    if (steerLeft) {
-      steerDirection = -1
-    } else if (steerRight) {
-      steerDirection = 1
-    }
-
-    const isPowersliding = this.playerKart.state === 'powerslide'
+    this.itemSystem?.update(this.playerKart.x, this.playerKart.y, this.cameraState)
+    this.mode7Renderer.render(this.cameraState)
 
     this.racerSprite?.update(
-      steerDirection,
-      this.playerKart.speedRatio,
-      this.currentSurface === 'offRoad',
-      isPowersliding,
-      deltaSeconds,
+      this.playerKart.steerVisual,
+      this.currentSurface,
+      this.playerKart.speed,
+      delta,
     )
 
     this.skidEffects?.update(
-      isPowersliding,
-      this.playerKart.speedRatio,
-      deltaSeconds,
+      this.playerKart.state,
+      this.playerKart.steerVisual,
+      this.playerKart.speed,
+      delta,
     )
 
     this.updateHud()
-    this.mode7Renderer.render(this.cameraState)
+  }
+
+  private syncCameraToKart() {
+    if (!this.playerKart || !this.mode7Renderer) return
+    const forwardX = Math.sin(this.playerKart.heading)
+    const forwardY = -Math.cos(this.playerKart.heading)
+    this.cameraState.x = this.playerKart.x - forwardX * this.mode7Renderer.groundContactDistance
+    this.cameraState.y = this.playerKart.y - forwardY * this.mode7Renderer.groundContactDistance
+    this.cameraState.angle = this.playerKart.heading
   }
 
   private createKeyboardControls() {
     const keyboard = this.input.keyboard
-
-    if (!keyboard) {
-      return
-    }
-
+    if (!keyboard) return
     this.cursors = keyboard.createCursorKeys()
+    this.wasd = keyboard.addKeys('W,S,A,D') as typeof this.wasd
     this.slideKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT)
     this.useItemKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
-    this.wasd = keyboard.addKeys({
-      up: Phaser.Input.Keyboard.KeyCodes.W,
-      down: Phaser.Input.Keyboard.KeyCodes.S,
-      left: Phaser.Input.Keyboard.KeyCodes.A,
-      right: Phaser.Input.Keyboard.KeyCodes.D,
-    }) as {
-      up: Phaser.Input.Keyboard.Key
-      down: Phaser.Input.Keyboard.Key
-      left: Phaser.Input.Keyboard.Key
-      right: Phaser.Input.Keyboard.Key
-    }
   }
 
   private createHud() {
     this.add
-      .text(20, 18, 'RETRO KART // ITEMS TEST', {
-        fontFamily: 'monospace',
-        fontSize: '20px',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 4,
-      })
-      .setDepth(30)
-
-    this.add
-      .text(20, 48, 'UP/W ACCELERATE   DOWN/S BRAKE + REVERSE', {
-        fontFamily: 'monospace',
-        fontSize: '14px',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
-      .setDepth(30)
-
-    this.add
-      .text(
-        20,
-        68,
-        'LEFT/RIGHT OR A/D STEER   SHIFT POWERSLIDE   SPACE USE ITEM',
-        {
-          fontFamily: 'monospace',
-          fontSize: '14px',
-          color: '#ffffff',
-          stroke: '#000000',
-          strokeThickness: 3,
-        },
-      )
-      .setDepth(30)
-
-    this.speedText = this.add
-      .text(20, GAME_HEIGHT - 44, 'SPEED 000', {
+      .text(18, 16, 'RETRO KART // ITEMS TEST', {
         fontFamily: 'monospace',
         fontSize: '18px',
         color: '#ffffff',
@@ -397,60 +260,40 @@ export class RaceScene extends Phaser.Scene {
       })
       .setDepth(30)
 
-    this.surfaceText = this.add
-      .text(GAME_WIDTH - 20, GAME_HEIGHT - 44, 'ROAD', {
+    this.add
+      .text(18, 42, 'UP/DOWN OR W/S DRIVE   LEFT/RIGHT OR A/D STEER   SHIFT POWERSLIDE   SPACE USE ITEM', {
         fontFamily: 'monospace',
-        fontSize: '16px',
+        fontSize: '12px',
         color: '#ffffff',
         stroke: '#000000',
-        strokeThickness: 4,
+        strokeThickness: 3,
       })
-      .setOrigin(1, 0)
       .setDepth(30)
 
-    this.add
-      .image(GAME_WIDTH - 18, 18, TRACK_TEXTURE_KEY)
-      .setOrigin(1, 0)
-      .setDisplaySize(150, 150)
-      .setAlpha(0.9)
+    this.speedText = this.add
+      .text(18, 68, '', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setDepth(30)
+
+    this.surfaceText = this.add
+      .text(18, 90, '', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
       .setDepth(30)
   }
 
   private updateHud() {
-    if (!this.speedText || !this.surfaceText || !this.playerKart) {
-      return
-    }
-
-    const speedPercent = Math.round(Math.abs(this.playerKart.speedRatio) * 100)
-    const direction = this.playerKart.speed < -0.01 ? 'R' : ' '
-
-    this.speedText.setText(
-      `SPEED ${direction}${speedPercent.toString().padStart(3, '0')}`,
-    )
-
-    const surfaceLabel =
-      this.currentSurface === 'road'
-        ? 'ROAD'
-        : this.currentSurface === 'offRoad'
-          ? 'OFF-ROAD'
-          : this.currentSurface === 'barrier'
-            ? 'BARRIER'
-            : 'OUTSIDE'
-
-    this.surfaceText.setText(surfaceLabel)
-  }
-
-  private syncCameraToKart() {
-    if (!this.playerKart || !this.mode7Renderer) {
-      return
-    }
-
-    const cameraOffset = this.mode7Renderer.groundContactDistance
-    const forwardX = Math.sin(this.playerKart.angle)
-    const forwardY = -Math.cos(this.playerKart.angle)
-
-    this.cameraState.x = this.playerKart.x - forwardX * cameraOffset
-    this.cameraState.y = this.playerKart.y - forwardY * cameraOffset
-    this.cameraState.angle = this.playerKart.angle
+    if (!this.playerKart) return
+    this.speedText?.setText(`SPEED ${Math.round(Math.abs(this.playerKart.speed) * 100)}`)
+    this.surfaceText?.setText(`SURFACE ${this.currentSurface.toUpperCase()}`)
   }
 }
