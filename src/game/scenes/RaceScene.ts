@@ -243,8 +243,19 @@ export class RaceScene extends Phaser.Scene {
   private createKeyboardControls() {
     const keyboard = this.input.keyboard
     if (!keyboard) return
+
     this.cursors = keyboard.createCursorKeys()
-    this.wasd = keyboard.addKeys('W,S,A,D') as typeof this.wasd
+    this.wasd = keyboard.addKeys({
+      up: Phaser.Input.Keyboard.KeyCodes.W,
+      down: Phaser.Input.Keyboard.KeyCodes.S,
+      left: Phaser.Input.Keyboard.KeyCodes.A,
+      right: Phaser.Input.Keyboard.KeyCodes.D,
+    }) as {
+      up: Phaser.Input.Keyboard.Key
+      down: Phaser.Input.Keyboard.Key
+      left: Phaser.Input.Keyboard.Key
+      right: Phaser.Input.Keyboard.Key
+    }
     this.slideKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT)
     this.useItemKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
   }
