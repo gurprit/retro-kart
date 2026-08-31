@@ -18,11 +18,14 @@ const PICKUP_RADIUS_RATIO = 0.035
 const ITEM_BOX_RESPAWN_AFTER_USE_MS = 1200
 const PANEL_FRAME_MS = 90
 const ROULETTE_DURATION_MS = 1050
-const ROULETTE_STEP_MS = 70
+const ROULETTE_STEP_MS = 80
 
-// The supplied Mario Circuit tileset crop is a 4 x 4 frame block. Each frame
-// is 16 x 8 source pixels: the top two rows are the live yellow question-panel
-// animation and the bottom two rows are the red/empty-panel animation.
+// Exact GIMP measurements from public/assets/tilesets/Mario Circuit.png:
+// item-panel animation block = x 0, y 192, size 64 x 32.
+// It contains a 4 x 4 grid of 16 x 8 frames. The upper two rows are the
+// live yellow panels and the lower two rows are the red/empty panels.
+const PANEL_SHEET_X = 0
+const PANEL_SHEET_Y = 192
 const PANEL_FRAME_WIDTH = 16
 const PANEL_FRAME_HEIGHT = 8
 const PANEL_COLUMNS = 4
@@ -31,14 +34,16 @@ const EMPTY_PANEL_FRAME_START = 8
 const EMPTY_PANEL_FRAMES = 8
 const PANEL_WORLD_SCALE = 2
 
-// Item Roulette.png is 80px wide. Cycle five 16px cells across the top row for
-// the fast roulette flicker, while the container itself performs the opening pop.
-const ROULETTE_CELL_SIZE = 16
-const ROULETTE_CELL_COUNT = 5
+// Exact GIMP measurement from public/assets/items/Item Roulette.png:
+// first roulette window begins at x 0, y 19 and is 26 x 18 pixels.
+// The 80px-wide sheet fits three horizontal animation cells on that row.
+const ROULETTE_FRAME_X = 0
+const ROULETTE_FRAME_Y = 19
+const ROULETTE_FRAME_WIDTH = 26
+const ROULETTE_FRAME_HEIGHT = 18
+const ROULETTE_FRAME_COUNT = 3
+const ROULETTE_DISPLAY_SCALE = 3
 
-// Mario Circuit 1 first item row, expressed in normalized track coordinates.
-// Placement/state stay independent from PlayerKart so AI/network racers can
-// consume exactly the same item-box data later.
 const MARIO_CIRCUIT_ITEM_BOXES = [
   { id: 'mc1-1', xRatio: 0.86, yRatio: 0.5 },
   { id: 'mc1-2', xRatio: 0.885, yRatio: 0.5 },
@@ -62,7 +67,6 @@ export class ItemSystem {
   private rouletteFinishTimer?: Phaser.Time.TimerEvent
   private respawnTimer?: Phaser.Time.TimerEvent
 
-  private readonly rouletteFrame: Phaser.GameObjects.Rectangle
   private readonly rouletteSprite: Phaser.GameObjects.Image
   private readonly heldText: Phaser.GameObjects.Text
 
@@ -85,21 +89,25 @@ export class ItemSystem {
       active: true,
     }))
 
-    this.rouletteFrame = scene.add
-      .rectangle(90, 128, 68, 68, 0x101018, 0.92)
-      .setStrokeStyle(4, 0xffffff)
-      .setDepth(40)
-      .setVisible(false)
-
+    // The roulette artwork already contains its own SNES border, so don't draw
+    // a modern rectangle behind it. Crop the measured 26 x 18 window directly.
     this.rouletteSprite = scene.add
       .image(90, 128, rouletteTextureKey)
       .setDepth(41)
-      .setCrop(0, 0, ROULETTE_CELL_SIZE, ROULETTE_CELL_SIZE)
-      .setDisplaySize(48, 48)
+      .setCrop(
+        ROULETTE_FRAME_X,
+        ROULETTE_FRAME_Y,
+        ROULETTE_FRAME_WIDTH,
+        ROULETTE_FRAME_HEIGHT,
+      )
+      .setDisplaySize(
+        ROULETTE_FRAME_WIDTH * ROULETTE_DISPLAY_SCALE,
+        ROULETTE_FRAME_HEIGHT * ROULETTE_DISPLAY_SCALE,
+      )
       .setVisible(false)
 
     this.heldText = scene.add
-      .text(90, 168, '', {
+      .text(90, 162, '', {
         fontFamily: 'monospace',
         fontSize: '13px',
         color: '#ffffff',
@@ -133,9 +141,7 @@ export class ItemSystem {
     const pickupRadiusSq = this.pickupRadius * this.pickupRadius
 
     for (const itemBox of this.itemBoxes) {
-      if (!itemBox.active) {
-        continue
-      }
+      if (!itemBox.active) continue
 
       const dx = playerX - itemBox.x
       const dy = playerY - itemBox.y
@@ -148,17 +154,12 @@ export class ItemSystem {
   }
 
   useHeldItem() {
-    if (!this.heldItem || this.rouletteRunning) {
-      return undefined
-    }
+    if (!this.heldItem || this.rouletteRunning) return undefined
 
     const item = this.heldItem
     this.heldItem = undefined
     this.closeRouletteHud()
 
-    // Keep the collected panel visibly empty until the item is actually used,
-    // then recharge it shortly afterwards. This makes the lifecycle obvious
-    // during this milestone and maps cleanly to server-authoritative respawns.
     if (this.collectedBox) {
       const boxToRespawn = this.collectedBox
       this.collectedBox = undefined
@@ -185,7 +186,6 @@ export class ItemSystem {
     this.rouletteFinishTimer?.destroy()
     this.respawnTimer?.destroy()
     this.renderer.setGroundSprites(this.tilesetTextureKey, [])
-    this.rouletteFrame.destroy()
     this.rouletteSprite.destroy()
     this.heldText.destroy()
   }
@@ -199,28 +199,26 @@ export class ItemSystem {
 
   private startRoulette() {
     this.rouletteRunning = true
-    this.rouletteFrame.setVisible(true).setScale(0.12).setAlpha(1)
-    this.rouletteSprite
-      .setVisible(true)
-      .setAlpha(1)
-      .setCrop(0, 0, ROULETTE_CELL_SIZE, ROULETTE_CELL_SIZE)
-      .setScale(0.12)
-    this.heldText.setText('ROULETTE').setAlpha(0)
+    this.setRouletteFrame(0)
+    this.rouletteSprite.setVisible(true).setAlpha(1).setScale(0.08)
+    this.heldText.setText('').setAlpha(0)
 
+    // Open from almost nothing to the native cropped sprite size, with a tiny
+    // overshoot. This gives the SNES item-window "pop open" rather than making
+    // the entire source sheet wobble.
     this.scene.tweens.add({
-      targets: [this.rouletteFrame, this.rouletteSprite],
-      scaleX: 1.12,
-      scaleY: 1.12,
-      duration: 110,
+      targets: this.rouletteSprite,
+      scaleX: 1.08,
+      scaleY: 1.08,
+      duration: 120,
       ease: 'Back.Out',
       onComplete: () => {
         this.scene.tweens.add({
-          targets: [this.rouletteFrame, this.rouletteSprite],
+          targets: this.rouletteSprite,
           scaleX: 1,
           scaleY: 1,
-          duration: 70,
+          duration: 60,
         })
-        this.heldText.setAlpha(1)
       },
     })
 
@@ -231,17 +229,8 @@ export class ItemSystem {
       loop: true,
       callback: () => {
         step += 1
-        const cell = step % ROULETTE_CELL_COUNT
-        this.rouletteSprite.setCrop(
-          cell * ROULETTE_CELL_SIZE,
-          0,
-          ROULETTE_CELL_SIZE,
-          ROULETTE_CELL_SIZE,
-        )
-
-        const flashOn = step % 2 === 0
-        this.rouletteFrame.setAlpha(flashOn ? 1 : 0.58)
-        this.rouletteSprite.setAlpha(flashOn ? 1 : 0.72)
+        this.setRouletteFrame(step % ROULETTE_FRAME_COUNT)
+        this.rouletteSprite.setAlpha(step % 2 === 0 ? 1 : 0.7)
       },
     })
 
@@ -253,24 +242,34 @@ export class ItemSystem {
         this.rouletteTimer = undefined
         this.rouletteRunning = false
         this.heldItem = 'banana'
-        this.rouletteFrame.setAlpha(1)
-        this.rouletteSprite
-          .setAlpha(1)
-          .setCrop(0, 0, ROULETTE_CELL_SIZE, ROULETTE_CELL_SIZE)
-        this.heldText.setText('BANANA  [SPACE]')
+        this.setRouletteFrame(0)
+        this.rouletteSprite.setAlpha(1)
+        this.heldText.setText('BANANA  [SPACE]').setAlpha(1)
       },
+    )
+  }
+
+  private setRouletteFrame(frame: number) {
+    this.rouletteSprite.setCrop(
+      ROULETTE_FRAME_X + frame * ROULETTE_FRAME_WIDTH,
+      ROULETTE_FRAME_Y,
+      ROULETTE_FRAME_WIDTH,
+      ROULETTE_FRAME_HEIGHT,
+    )
+    this.rouletteSprite.setDisplaySize(
+      ROULETTE_FRAME_WIDTH * ROULETTE_DISPLAY_SCALE,
+      ROULETTE_FRAME_HEIGHT * ROULETTE_DISPLAY_SCALE,
     )
   }
 
   private closeRouletteHud() {
     this.scene.tweens.add({
-      targets: [this.rouletteFrame, this.rouletteSprite],
-      scaleX: 0.1,
-      scaleY: 0.1,
+      targets: this.rouletteSprite,
+      scaleX: 0.08,
+      scaleY: 0.08,
       alpha: 0,
       duration: 90,
       onComplete: () => {
-        this.rouletteFrame.setVisible(false).setScale(1).setAlpha(1)
         this.rouletteSprite.setVisible(false).setScale(1).setAlpha(1)
       },
     })
@@ -288,8 +287,8 @@ export class ItemSystem {
       return {
         x: itemBox.x,
         y: itemBox.y,
-        frameX: column * PANEL_FRAME_WIDTH,
-        frameY: row * PANEL_FRAME_HEIGHT,
+        frameX: PANEL_SHEET_X + column * PANEL_FRAME_WIDTH,
+        frameY: PANEL_SHEET_Y + row * PANEL_FRAME_HEIGHT,
         frameWidth: PANEL_FRAME_WIDTH,
         frameHeight: PANEL_FRAME_HEIGHT,
         worldScale: PANEL_WORLD_SCALE,
