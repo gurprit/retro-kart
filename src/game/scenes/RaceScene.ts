@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { PlayerKart } from '../entities/PlayerKart'
 import { SkidEffects } from '../effects/SkidEffects'
+import { ItemSystem } from '../items/ItemSystem'
 import {
   Mode7Renderer,
   type Mode7CameraState,
@@ -19,6 +20,7 @@ const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
 const TRACK_TEXTURE_KEY = 'prototype-track'
 const COLLISION_TEXTURE_KEY = 'prototype-collision'
 const RACER_TEXTURE_KEY = 'prototype-racer'
+const ITEM_ROULETTE_TEXTURE_KEY = 'item-roulette'
 const PARTICLE_SHEET_URL = '/assets/effects/Particles.png'
 const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
 const NEAR_BACKGROUND_TEXTURE_KEY = 'prototype-near-background'
@@ -61,6 +63,7 @@ export class RaceScene extends Phaser.Scene {
   private playerKart?: PlayerKart
   private racerSprite?: RacerSpriteView
   private skidEffects?: SkidEffects
+  private itemSystem?: ItemSystem
   private trackSurfaceMap?: TrackSurfaceMap
   private speedText?: Phaser.GameObjects.Text
   private surfaceText?: Phaser.GameObjects.Text
@@ -74,6 +77,7 @@ export class RaceScene extends Phaser.Scene {
 
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys
   private slideKey?: Phaser.Input.Keyboard.Key
+  private useItemKey?: Phaser.Input.Keyboard.Key
   private wasd?: {
     up: Phaser.Input.Keyboard.Key
     down: Phaser.Input.Keyboard.Key
@@ -105,6 +109,10 @@ export class RaceScene extends Phaser.Scene {
     this.load.image(
       RACER_TEXTURE_KEY,
       '/assets/characters/Racers - Mario.png',
+    )
+    this.load.image(
+      ITEM_ROULETTE_TEXTURE_KEY,
+      '/assets/items/Item Roulette.png',
     )
   }
 
@@ -187,8 +195,25 @@ export class RaceScene extends Phaser.Scene {
       GAME_HEIGHT - 42,
     )
 
+    this.itemSystem = new ItemSystem(
+      this,
+      this.mode7Renderer,
+      worldScale,
+      ITEM_ROULETTE_TEXTURE_KEY,
+    )
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.itemSystem?.destroy()
+      this.itemSystem = undefined
+    })
+
     this.parallaxBackground.update(this.cameraState.angle)
     this.mode7Renderer.render(this.cameraState)
+    this.itemSystem.update(
+      this.playerKart.x,
+      this.playerKart.y,
+      this.cameraState,
+    )
     this.updateHud()
   }
 
@@ -256,6 +281,19 @@ export class RaceScene extends Phaser.Scene {
     this.syncCameraToKart()
     this.parallaxBackground?.update(this.cameraState.angle)
 
+    if (
+      this.useItemKey &&
+      Phaser.Input.Keyboard.JustDown(this.useItemKey)
+    ) {
+      this.itemSystem?.useHeldItem()
+    }
+
+    this.itemSystem?.update(
+      this.playerKart.x,
+      this.playerKart.y,
+      this.cameraState,
+    )
+
     let steerDirection = 0
 
     if (steerLeft) {
@@ -293,6 +331,7 @@ export class RaceScene extends Phaser.Scene {
 
     this.cursors = keyboard.createCursorKeys()
     this.slideKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT)
+    this.useItemKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
     this.wasd = keyboard.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.W,
       down: Phaser.Input.Keyboard.KeyCodes.S,
@@ -308,7 +347,7 @@ export class RaceScene extends Phaser.Scene {
 
   private createHud() {
     this.add
-      .text(20, 18, 'RETRO KART // MASK + PARALLAX TEST', {
+      .text(20, 18, 'RETRO KART // ITEMS TEST', {
         fontFamily: 'monospace',
         fontSize: '20px',
         color: '#ffffff',
@@ -328,13 +367,18 @@ export class RaceScene extends Phaser.Scene {
       .setDepth(30)
 
     this.add
-      .text(20, 68, 'LEFT/RIGHT OR A/D STEER   HOLD SHIFT + STEER TO POWERSLIDE', {
-        fontFamily: 'monospace',
-        fontSize: '14px',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
+      .text(
+        20,
+        68,
+        'LEFT/RIGHT OR A/D STEER   SHIFT POWERSLIDE   SPACE USE ITEM',
+        {
+          fontFamily: 'monospace',
+          fontSize: '14px',
+          color: '#ffffff',
+          stroke: '#000000',
+          strokeThickness: 3,
+        },
+      )
       .setDepth(30)
 
     this.speedText = this.add
