@@ -16,6 +16,7 @@ type TouchButton = {
 export class TouchControls {
   readonly enabled: boolean
 
+  private readonly scene: Phaser.Scene
   private accelerateDown = false
   private brakeDown = false
   private steerLeftDown = false
@@ -25,7 +26,8 @@ export class TouchControls {
 
   private readonly buttons: TouchButton[] = []
 
-  constructor(private readonly scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene) {
+    this.scene = scene
     this.enabled =
       typeof navigator !== 'undefined' &&
       (navigator.maxTouchPoints > 0 || 'ontouchstart' in window)
