@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import {
   Mode7Renderer,
   type Mode7CameraState,
+  type Mode7GroundSprite,
 } from '../rendering/Mode7Renderer'
 
 export type ItemType = 'banana'
@@ -11,31 +12,27 @@ type ItemBox = {
   x: number
   y: number
   active: boolean
-  view: Phaser.GameObjects.Container
-  panel: Phaser.GameObjects.Image
-  glyph: Phaser.GameObjects.Image
 }
 
 const PICKUP_RADIUS_RATIO = 0.035
 const ITEM_BOX_RESPAWN_MS = 5000
-
-// Keep the physical panel completely static. Only the question-mark layer
-// animates, which avoids the full-tile shimmer from swapping complete frames.
-const PANEL_FRAME_MS = 150
-const PANEL_TEXTURE_KEY = 'item-panel-base'
-const GLYPH_TEXTURE_KEY = 'item-panel-question'
+const PANEL_FRAME_MS = 170
+const PANEL_TEXTURE_KEY = 'item-panels-mode7'
 const PANEL_SIZE = 32
-const GLYPH_FRAMES = 8
+const ACTIVE_PANEL_FRAMES = 8
+const EMPTY_PANEL_FRAME = ACTIVE_PANEL_FRAMES
+const PANEL_FRAME_COUNT = ACTIVE_PANEL_FRAMES + 1
+const PANEL_WORLD_SCALE = 1.05
 
 const ROULETTE_DURATION_MS = 1100
 const ROULETTE_STEP_MS = 110
 
 const MARIO_CIRCUIT_ITEM_BOXES = [
-  { id: 'mc1-1', xRatio: 0.86, yRatio: 0.5 },
-  { id: 'mc1-2', xRatio: 0.885, yRatio: 0.5 },
+  { id: 'mc1-1', xRatio: 0.85, yRatio: 0.5 },
+  { id: 'mc1-2', xRatio: 0.88, yRatio: 0.5 },
   { id: 'mc1-3', xRatio: 0.91, yRatio: 0.5 },
-  { id: 'mc1-4', xRatio: 0.935, yRatio: 0.5 },
-  { id: 'mc1-5', xRatio: 0.96, yRatio: 0.5 },
+  { id: 'mc1-4', xRatio: 0.94, yRatio: 0.5 },
+  { id: 'mc1-5', xRatio: 0.97, yRatio: 0.5 },
 ] as const
 
 export class ItemSystem {
@@ -63,34 +60,14 @@ export class ItemSystem {
     this.scene = scene
     this.renderer = renderer
     this.pickupRadius = worldScale * PICKUP_RADIUS_RATIO
-    this.createPanelTextures()
+    this.createPanelTexture()
 
-    this.itemBoxes = MARIO_CIRCUIT_ITEM_BOXES.map((definition) => {
-      const panel = scene.add
-        .image(0, 0, PANEL_TEXTURE_KEY)
-        .setOrigin(0.5, 1)
-        .setCrop(0, 0, PANEL_SIZE, PANEL_SIZE)
-
-      const glyph = scene.add
-        .image(0, 0, GLYPH_TEXTURE_KEY)
-        .setOrigin(0.5, 1)
-        .setCrop(0, 0, PANEL_SIZE, PANEL_SIZE)
-
-      const view = scene.add
-        .container(0, 0, [panel, glyph])
-        .setDepth(8)
-        .setVisible(false)
-
-      return {
-        id: definition.id,
-        x: renderer.sourceWidth * definition.xRatio,
-        y: renderer.sourceHeight * definition.yRatio,
-        active: true,
-        view,
-        panel,
-        glyph,
-      }
-    })
+    this.itemBoxes = MARIO_CIRCUIT_ITEM_BOXES.map((definition) => ({
+      id: definition.id,
+      x: renderer.sourceWidth * definition.xRatio,
+      y: renderer.sourceHeight * definition.yRatio,
+      active: true,
+    }))
 
     this.rouletteFrame = scene.add
       .rectangle(90, 128, 110, 86, 0x101018, 0.92)
@@ -119,14 +96,15 @@ export class ItemSystem {
       delay: PANEL_FRAME_MS,
       loop: true,
       callback: () => {
-        this.panelFrame = (this.panelFrame + 1) % GLYPH_FRAMES
+        this.panelFrame = (this.panelFrame + 1) % ACTIVE_PANEL_FRAMES
+        this.refreshGroundPanels()
       },
     })
+
+    this.refreshGroundPanels()
   }
 
-  update(playerX: number, playerY: number, camera: Mode7CameraState) {
-    this.updateItemBoxViews(camera)
-
+  update(playerX: number, playerY: number, _camera: Mode7CameraState) {
     if (this.heldItem || this.rouletteRunning) return
 
     const pickupRadiusSq = this.pickupRadius * this.pickupRadius
@@ -157,23 +135,23 @@ export class ItemSystem {
     this.panelTimer?.destroy()
     this.rouletteTimer?.destroy()
     this.rouletteFinishTimer?.destroy()
-    for (const itemBox of this.itemBoxes) itemBox.view.destroy(true)
+    this.renderer.setGroundSprites(PANEL_TEXTURE_KEY, [])
     this.rouletteFrame.destroy()
     this.rouletteSprite.destroy()
     this.heldText.destroy()
     if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) {
       this.scene.textures.remove(PANEL_TEXTURE_KEY)
     }
-    if (this.scene.textures.exists(GLYPH_TEXTURE_KEY)) {
-      this.scene.textures.remove(GLYPH_TEXTURE_KEY)
-    }
   }
 
   private collect(itemBox: ItemBox) {
     itemBox.active = false
+    this.refreshGroundPanels()
     this.startRoulette()
+
     this.scene.time.delayedCall(ITEM_BOX_RESPAWN_MS, () => {
       itemBox.active = true
+      this.refreshGroundPanels()
     })
   }
 
@@ -218,100 +196,44 @@ export class ItemSystem {
     }
   }
 
-  private updateItemBoxViews(camera: Mode7CameraState) {
-    for (const itemBox of this.itemBoxes) {
-      const projected = this.renderer.projectWorldPoint(
-        itemBox.x,
-        itemBox.y,
-        camera,
+  private createPanelTexture() {
+    if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) return
+
+    const texture = this.scene.textures.createCanvas(
+      PANEL_TEXTURE_KEY,
+      PANEL_SIZE * PANEL_FRAME_COUNT,
+      PANEL_SIZE,
+    )
+    if (!texture) return
+
+    const context = texture.context
+    context.imageSmoothingEnabled = false
+
+    const scrollPositions = [-18, -11, -4, 3, 10, 17, 24, 31]
+
+    for (let frame = 0; frame < ACTIVE_PANEL_FRAMES; frame += 1) {
+      const frameX = frame * PANEL_SIZE
+      this.drawPanelBase(context, frameX, true)
+
+      context.save()
+      context.beginPath()
+      context.rect(frameX, 0, PANEL_SIZE, PANEL_SIZE)
+      context.clip()
+      this.drawQuestionMark(
+        context,
+        frameX + scrollPositions[frame],
+        5,
       )
-
-      if (!projected) {
-        itemBox.view.setVisible(false)
-        continue
-      }
-
-      // The base panel never animates. Active = yellow frame 0, empty = red
-      // frame 1. The question-mark image above it is the only moving layer.
-      itemBox.panel.setCrop(
-        itemBox.active ? 0 : PANEL_SIZE,
-        0,
-        PANEL_SIZE,
-        PANEL_SIZE,
-      )
-      itemBox.glyph
-        .setVisible(itemBox.active)
-        .setCrop(
-          this.panelFrame * PANEL_SIZE,
-          0,
-          PANEL_SIZE,
-          PANEL_SIZE,
-        )
-
-      const perspectiveScale = Phaser.Math.Clamp(
-        projected.scale * 1.55,
-        0.72,
-        2.8,
-      )
-
-      // Anchor the bottom edge directly on the projected road point. The
-      // dimensions are deliberately broader and less vertically crushed than
-      // before so the panel reads as a square tile lying in perspective rather
-      // than a thin floating sign.
-      const displayWidth = PANEL_SIZE * 4.35 * perspectiveScale
-      const displayHeight = PANEL_SIZE * 2.25 * perspectiveScale
-
-      itemBox.panel.setDisplaySize(displayWidth, displayHeight)
-      itemBox.glyph.setDisplaySize(displayWidth, displayHeight)
-      itemBox.view
-        .setVisible(true)
-        .setPosition(projected.x, projected.y + 2)
-        .setDepth(8 + projected.screenY / 1000)
-    }
-  }
-
-  private createPanelTextures() {
-    if (!this.scene.textures.exists(PANEL_TEXTURE_KEY)) {
-      const texture = this.scene.textures.createCanvas(
-        PANEL_TEXTURE_KEY,
-        PANEL_SIZE * 2,
-        PANEL_SIZE,
-      )
-
-      if (texture) {
-        const context = texture.context
-        context.imageSmoothingEnabled = false
-        this.drawPanelBase(context, 0, true)
-        this.drawPanelBase(context, PANEL_SIZE, false)
-        texture.refresh()
-      }
+      context.restore()
     }
 
-    if (!this.scene.textures.exists(GLYPH_TEXTURE_KEY)) {
-      const texture = this.scene.textures.createCanvas(
-        GLYPH_TEXTURE_KEY,
-        PANEL_SIZE * GLYPH_FRAMES,
-        PANEL_SIZE,
-      )
+    this.drawPanelBase(
+      context,
+      EMPTY_PANEL_FRAME * PANEL_SIZE,
+      false,
+    )
 
-      if (!texture) return
-
-      const context = texture.context
-      context.imageSmoothingEnabled = false
-
-      // Each frame is transparent except for the same question mark at a new
-      // horizontal position. The panel underneath remains perfectly static.
-      const positions = [-10, -5, 0, 5, 10, 5, 0, -5]
-      for (let frame = 0; frame < GLYPH_FRAMES; frame += 1) {
-        this.drawQuestionMark(
-          context,
-          frame * PANEL_SIZE + positions[frame],
-          5,
-        )
-      }
-
-      texture.refresh()
-    }
+    texture.refresh()
   }
 
   private drawPanelBase(
@@ -356,5 +278,25 @@ export class ItemSystem {
     for (const [px, py] of pixels) {
       context.fillRect(x + px * block, y + py * block, block, block)
     }
+  }
+
+  private refreshGroundPanels() {
+    const sprites: Mode7GroundSprite[] = this.itemBoxes.map((itemBox) => {
+      const frame = itemBox.active
+        ? this.panelFrame
+        : EMPTY_PANEL_FRAME
+
+      return {
+        x: itemBox.x,
+        y: itemBox.y,
+        frameX: frame * PANEL_SIZE,
+        frameY: 0,
+        frameWidth: PANEL_SIZE,
+        frameHeight: PANEL_SIZE,
+        worldScale: PANEL_WORLD_SCALE,
+      }
+    })
+
+    this.renderer.setGroundSprites(PANEL_TEXTURE_KEY, sprites)
   }
 }
