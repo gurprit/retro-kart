@@ -14,6 +14,16 @@ export type Mode7ProjectedPoint = {
   scale: number
 }
 
+export type Mode7GroundSprite = {
+  x: number
+  y: number
+  frameX: number
+  frameY: number
+  frameWidth: number
+  frameHeight: number
+  worldScale?: number
+}
+
 const KART_CONTACT_OFFSET_FROM_BOTTOM = 42
 
 export class Mode7Renderer {
@@ -21,7 +31,9 @@ export class Mode7Renderer {
   readonly sourceHeight: number
   readonly groundContactDistance: number
 
+  private readonly scene: Phaser.Scene
   private readonly sourcePixels: Uint8ClampedArray
+  private readonly groundOverlayPixels: Uint8ClampedArray
   private readonly outputTexture: Phaser.Textures.CanvasTexture
   private readonly outputContext: CanvasRenderingContext2D
   private readonly outputImageData: ImageData
@@ -41,6 +53,7 @@ export class Mode7Renderer {
     x: number,
     y: number,
   ) {
+    this.scene = scene
     this.width = width
     this.height = height
     this.originX = x
@@ -75,6 +88,9 @@ export class Mode7Renderer {
       this.sourceWidth,
       this.sourceHeight,
     ).data
+    this.groundOverlayPixels = new Uint8ClampedArray(
+      this.sourceWidth * this.sourceHeight * 4,
+    )
 
     const outputTexture = scene.textures.createCanvas(
       'mode7-ground',
@@ -116,6 +132,72 @@ export class Mode7Renderer {
       .setDisplaySize(width, height)
   }
 
+  setGroundSprites(textureKey: string, sprites: Mode7GroundSprite[]) {
+    this.groundOverlayPixels.fill(0)
+
+    if (sprites.length === 0) {
+      return
+    }
+
+    const texture = this.scene.textures.get(textureKey)
+    const image = texture.getSourceImage() as CanvasImageSource & {
+      width: number
+      height: number
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = image.width
+    canvas.height = image.height
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+
+    if (!context) {
+      return
+    }
+
+    context.imageSmoothingEnabled = false
+    context.drawImage(image, 0, 0)
+    const pixels = context.getImageData(0, 0, image.width, image.height).data
+
+    for (const sprite of sprites) {
+      const scale = Math.max(1, Math.round(sprite.worldScale ?? 1))
+      const worldWidth = sprite.frameWidth * scale
+      const worldHeight = sprite.frameHeight * scale
+      const startX = Math.round(sprite.x - worldWidth / 2)
+      const startY = Math.round(sprite.y - worldHeight / 2)
+
+      for (let dy = 0; dy < worldHeight; dy += 1) {
+        const targetY = startY + dy
+
+        if (targetY < 0 || targetY >= this.sourceHeight) {
+          continue
+        }
+
+        const sourceY = sprite.frameY + Math.floor(dy / scale)
+
+        for (let dx = 0; dx < worldWidth; dx += 1) {
+          const targetX = startX + dx
+
+          if (targetX < 0 || targetX >= this.sourceWidth) {
+            continue
+          }
+
+          const sourceX = sprite.frameX + Math.floor(dx / scale)
+          const sourceIndex = (sourceY * image.width + sourceX) * 4
+          const alpha = pixels[sourceIndex + 3]
+
+          if (alpha === 0) {
+            continue
+          }
+
+          const targetIndex = (targetY * this.sourceWidth + targetX) * 4
+          this.groundOverlayPixels[targetIndex] = pixels[sourceIndex]
+          this.groundOverlayPixels[targetIndex + 1] = pixels[sourceIndex + 1]
+          this.groundOverlayPixels[targetIndex + 2] = pixels[sourceIndex + 2]
+          this.groundOverlayPixels[targetIndex + 3] = alpha
+        }
+      }
+    }
+  }
+
   render(camera: Mode7CameraState) {
     const outputPixels = this.outputImageData.data
     const forwardX = Math.sin(camera.angle)
@@ -154,6 +236,24 @@ export class Mode7Renderer {
         }
 
         const sourceIndex = (sourceY * this.sourceWidth + sourceX) * 4
+        const overlayAlpha = this.groundOverlayPixels[sourceIndex + 3]
+
+        if (overlayAlpha > 0) {
+          const alpha = overlayAlpha / 255
+          const inverseAlpha = 1 - alpha
+          outputPixels[outputIndex] =
+            this.groundOverlayPixels[sourceIndex] * alpha +
+            this.sourcePixels[sourceIndex] * inverseAlpha
+          outputPixels[outputIndex + 1] =
+            this.groundOverlayPixels[sourceIndex + 1] * alpha +
+            this.sourcePixels[sourceIndex + 1] * inverseAlpha
+          outputPixels[outputIndex + 2] =
+            this.groundOverlayPixels[sourceIndex + 2] * alpha +
+            this.sourcePixels[sourceIndex + 2] * inverseAlpha
+          outputPixels[outputIndex + 3] = 255
+          continue
+        }
+
         outputPixels[outputIndex] = this.sourcePixels[sourceIndex]
         outputPixels[outputIndex + 1] = this.sourcePixels[sourceIndex + 1]
         outputPixels[outputIndex + 2] = this.sourcePixels[sourceIndex + 2]
