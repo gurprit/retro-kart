@@ -22,6 +22,8 @@ export type Mode7GroundSprite = {
   frameWidth: number
   frameHeight: number
   worldScale?: number
+  worldScaleX?: number
+  worldScaleY?: number
 }
 
 const KART_CONTACT_OFFSET_FROM_BOTTOM = 42
@@ -111,9 +113,6 @@ export class Mode7Renderer {
     this.nearDistance = minSourceDimension * 0.055
     this.farDistance = minSourceDimension * 0.56
 
-    // Mario's tyre/contact point is 42 screen pixels above the bottom edge.
-    // Align the camera to the projection distance at that exact scanline rather
-    // than the final ground row, so visuals and collision sample the same point.
     const contactRow = Phaser.Math.Clamp(
       this.height - KART_CONTACT_OFFSET_FROM_BOTTOM,
       0,
@@ -158,9 +157,11 @@ export class Mode7Renderer {
     const pixels = context.getImageData(0, 0, image.width, image.height).data
 
     for (const sprite of sprites) {
-      const scale = Math.max(1, Math.round(sprite.worldScale ?? 1))
-      const worldWidth = sprite.frameWidth * scale
-      const worldHeight = sprite.frameHeight * scale
+      const fallbackScale = Math.max(1, sprite.worldScale ?? 1)
+      const scaleX = Math.max(0.25, sprite.worldScaleX ?? fallbackScale)
+      const scaleY = Math.max(0.25, sprite.worldScaleY ?? fallbackScale)
+      const worldWidth = Math.max(1, Math.round(sprite.frameWidth * scaleX))
+      const worldHeight = Math.max(1, Math.round(sprite.frameHeight * scaleY))
       const startX = Math.round(sprite.x - worldWidth / 2)
       const startY = Math.round(sprite.y - worldHeight / 2)
 
@@ -171,7 +172,12 @@ export class Mode7Renderer {
           continue
         }
 
-        const sourceY = sprite.frameY + Math.floor(dy / scale)
+        const sourceY =
+          sprite.frameY +
+          Math.min(
+            sprite.frameHeight - 1,
+            Math.floor((dy / worldHeight) * sprite.frameHeight),
+          )
 
         for (let dx = 0; dx < worldWidth; dx += 1) {
           const targetX = startX + dx
@@ -180,7 +186,12 @@ export class Mode7Renderer {
             continue
           }
 
-          const sourceX = sprite.frameX + Math.floor(dx / scale)
+          const sourceX =
+            sprite.frameX +
+            Math.min(
+              sprite.frameWidth - 1,
+              Math.floor((dx / worldWidth) * sprite.frameWidth),
+            )
           const sourceIndex = (sourceY * image.width + sourceX) * 4
           const alpha = pixels[sourceIndex + 3]
 
@@ -207,7 +218,6 @@ export class Mode7Renderer {
 
     for (let screenY = 0; screenY < this.height; screenY += 1) {
       const distance = this.distanceForRow(screenY)
-
       const halfWorldWidth = distance * this.halfFovTangent
       const rowCenterX = camera.x + forwardX * distance
       const rowCenterY = camera.y + forwardY * distance
