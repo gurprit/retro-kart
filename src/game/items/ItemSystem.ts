@@ -17,10 +17,9 @@ type ItemBox = {
 const PICKUP_RADIUS_RATIO = 0.035
 const ITEM_BOX_RESPAWN_AFTER_USE_MS = 1200
 
-// The earlier 90 ms cadence was far too frantic once the tiles were projected
-// through Mode 7. A slower cadence reads much more like a track-panel animation
-// instead of noisy texture flicker.
-const PANEL_FRAME_MS = 190
+// These frames contain fairly dramatic pixel-art changes, so a slower cadence
+// reads as a deliberate SNES animation instead of texture shimmer.
+const PANEL_FRAME_MS = 260
 const ROULETTE_DURATION_MS = 1250
 const ROULETTE_STEP_MS = 120
 
@@ -37,10 +36,13 @@ const ACTIVE_PANEL_FRAMES = 8
 const EMPTY_PANEL_FRAME_START = 8
 const EMPTY_PANEL_FRAMES = 8
 
-// These are painted into the track before Mode 7 projection. At 2x they were
-// only 32 x 16 world pixels and several source pixels vanished at distance,
-// making the artwork appear tiny/cropped. 4x preserves the whole tile better.
-const PANEL_WORLD_SCALE = 4
+// Do not uniformly enlarge these panels. They are already 2:1 artwork and the
+// Mode 7 pass supplies the road foreshortening. The previous 4x scale caused
+// neighbouring panels to overlap in the world map, which could merge several
+// sprites into one huge-looking patch. Keep them wider than tall and below the
+// spacing between item-box centres.
+const PANEL_WORLD_SCALE_X = 1.35
+const PANEL_WORLD_SCALE_Y = 1.5
 
 // GIMP measurement from public/assets/items/Item Roulette.png.
 const ROULETTE_FRAME_X = 0
@@ -124,8 +126,6 @@ export class ItemSystem {
       })
       .setOrigin(0.5, 0)
 
-    // Animate this container instead of rouletteSprite itself. That preserves
-    // the sprite's 4x display size while the whole HUD slot pops open/closed.
     this.rouletteContainer = scene.add
       .container(94, 132, [
         this.rouletteBacking,
@@ -251,7 +251,6 @@ export class ItemSystem {
         step += 1
         this.setRouletteFrame(step % ROULETTE_FRAME_COUNT)
 
-        // Flash the slot rather than shrinking the sprite. Keep it readable.
         const bright = step % 2 === 0
         this.rouletteSprite.setAlpha(bright ? 1 : 0.65)
         this.rouletteBacking.setAlpha(bright ? 1 : 0.8)
@@ -282,8 +281,6 @@ export class ItemSystem {
       ROULETTE_FRAME_HEIGHT,
     )
 
-    // setCrop can alter the displayed crop bounds internally, so explicitly
-    // restore our intended pixel-art size after every frame switch.
     this.rouletteSprite.setDisplaySize(
       ROULETTE_FRAME_WIDTH * ROULETTE_DISPLAY_SCALE,
       ROULETTE_FRAME_HEIGHT * ROULETTE_DISPLAY_SCALE,
@@ -323,7 +320,8 @@ export class ItemSystem {
         frameY: PANEL_SHEET_Y + row * PANEL_FRAME_HEIGHT,
         frameWidth: PANEL_FRAME_WIDTH,
         frameHeight: PANEL_FRAME_HEIGHT,
-        worldScale: PANEL_WORLD_SCALE,
+        worldScaleX: PANEL_WORLD_SCALE_X,
+        worldScaleY: PANEL_WORLD_SCALE_Y,
       }
     })
 
