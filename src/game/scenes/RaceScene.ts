@@ -32,6 +32,7 @@ const HORIZON_Y = 250
 const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
 const TRACK_TEXTURE_KEY = 'prototype-track'
 const COLLISION_TEXTURE_KEY = 'prototype-collision'
+const OUTSIDE_GRASS_TEXTURE_KEY = 'outside-grass'
 const ITEM_ROULETTE_TEXTURE_KEY = 'item-roulette'
 const PARTICLE_SHEET_URL = '/assets/effects/Particles.png'
 const FAR_BACKGROUND_TEXTURE_KEY = 'prototype-far-background'
@@ -105,6 +106,7 @@ export class RaceScene extends Phaser.Scene {
   preload() {
     this.load.image(TRACK_TEXTURE_KEY, '/assets/tracks/Mario Circuit 1.png')
     this.load.image(COLLISION_TEXTURE_KEY, '/assets/tracks/Mario Circuit 1 - Collision.png')
+    this.load.image(OUTSIDE_GRASS_TEXTURE_KEY, '/assets/tilesets/Mario Circuit-grass.png')
     this.load.image(FAR_BACKGROUND_TEXTURE_KEY, '/assets/backgrounds/Mario Circuit 1 - Far Background.png')
     this.load.image(NEAR_BACKGROUND_TEXTURE_KEY, '/assets/backgrounds/Mario Circuit 1 - Near Background.png')
 
@@ -151,6 +153,7 @@ export class RaceScene extends Phaser.Scene {
       GROUND_HEIGHT,
       0,
       HORIZON_Y,
+      OUTSIDE_GRASS_TEXTURE_KEY,
     )
 
     this.trackSurfaceMap = new TrackSurfaceMap(
