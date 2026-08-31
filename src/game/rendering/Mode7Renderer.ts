@@ -6,6 +6,14 @@ export type Mode7CameraState = {
   angle: number
 }
 
+export type Mode7ProjectedPoint = {
+  x: number
+  y: number
+  screenY: number
+  distance: number
+  scale: number
+}
+
 const KART_CONTACT_OFFSET_FROM_BOTTOM = 42
 
 export class Mode7Renderer {
@@ -19,6 +27,8 @@ export class Mode7Renderer {
   private readonly outputImageData: ImageData
   private readonly width: number
   private readonly height: number
+  private readonly originX: number
+  private readonly originY: number
   private readonly nearDistance: number
   private readonly farDistance: number
   private readonly halfFovTangent: number
@@ -33,6 +43,8 @@ export class Mode7Renderer {
   ) {
     this.width = width
     this.height = height
+    this.originX = x
+    this.originY = y
 
     const sourceTexture = scene.textures.get(sourceTextureKey)
     const sourceImage = sourceTexture.getSourceImage() as CanvasImageSource & {
@@ -151,6 +163,48 @@ export class Mode7Renderer {
 
     this.outputContext.putImageData(this.outputImageData, 0, 0)
     this.outputTexture.refresh()
+  }
+
+  projectWorldPoint(
+    worldX: number,
+    worldY: number,
+    camera: Mode7CameraState,
+  ): Mode7ProjectedPoint | undefined {
+    const forwardX = Math.sin(camera.angle)
+    const forwardY = -Math.cos(camera.angle)
+    const rightX = Math.cos(camera.angle)
+    const rightY = Math.sin(camera.angle)
+    const relativeX = worldX - camera.x
+    const relativeY = worldY - camera.y
+    const distance = relativeX * forwardX + relativeY * forwardY
+
+    if (distance < this.nearDistance || distance > this.farDistance) {
+      return undefined
+    }
+
+    const lateral = relativeX * rightX + relativeY * rightY
+    const halfWorldWidth = distance * this.halfFovTangent
+
+    if (Math.abs(lateral) > halfWorldWidth) {
+      return undefined
+    }
+
+    const denominator = (this.nearDistance * this.farDistance) / distance
+    const rowProgress =
+      (denominator - this.nearDistance) /
+      (this.farDistance - this.nearDistance)
+    const screenY = rowProgress * Math.max(1, this.height - 1)
+    const normalizedX = lateral / halfWorldWidth
+    const screenX =
+      ((normalizedX + 1) * 0.5) * Math.max(1, this.width - 1)
+
+    return {
+      x: this.originX + screenX,
+      y: this.originY + screenY,
+      screenY,
+      distance,
+      scale: this.groundContactDistance / distance,
+    }
   }
 
   private distanceForRow(screenY: number) {
