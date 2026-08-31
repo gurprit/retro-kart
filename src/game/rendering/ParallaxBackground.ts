@@ -4,8 +4,7 @@ const FAR_SCROLL_PER_TURN = 280
 const NEAR_SCROLL_PER_TURN = 620
 const FAR_SCALE = 0.82
 const NEAR_SCALE = 1
-const FAR_BOTTOM_OFFSET = 56
-const NEAR_BOTTOM_OFFSET = 8
+const BACKGROUND_BOTTOM_OFFSET = 8
 
 export class ParallaxBackground {
   private readonly farLayer: Phaser.GameObjects.TileSprite
@@ -25,15 +24,15 @@ export class ParallaxBackground {
 
     const farHeight = Math.max(1, Math.round(farSource.height * FAR_SCALE))
     const nearHeight = Math.max(1, Math.round(nearSource.height * NEAR_SCALE))
+    const sharedBottomY = horizonY - BACKGROUND_BOTTOM_OFFSET
 
-    // Treat the scenery like two planes receding along the z axis. The far
-    // mountains are smaller, higher and slower; the tree line is lower, larger
-    // and scrolls faster. Both remain one source-image tall so they only tile
-    // horizontally and cannot create repeated vertical bands.
+    // Both scenery strips share the same baseline so their source artwork
+    // overlays exactly as intended. Parallax comes only from horizontal motion:
+    // the distant layer moves slowly while the foreground layer moves faster.
     this.farLayer = scene.add
       .tileSprite(
         width / 2,
-        horizonY - FAR_BOTTOM_OFFSET,
+        sharedBottomY,
         width,
         farHeight,
         farTextureKey,
@@ -44,7 +43,7 @@ export class ParallaxBackground {
     this.nearLayer = scene.add
       .tileSprite(
         width / 2,
-        horizonY - NEAR_BOTTOM_OFFSET,
+        sharedBottomY,
         width,
         nearHeight,
         nearTextureKey,
