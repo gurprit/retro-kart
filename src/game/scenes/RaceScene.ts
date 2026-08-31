@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { PlayerKart } from '../entities/PlayerKart'
 import { SkidEffects } from '../effects/SkidEffects'
+import { TouchControls } from '../input/TouchControls'
 import { ItemSystem } from '../items/ItemSystem'
 import {
   Mode7Renderer,
@@ -62,6 +63,7 @@ export class RaceScene extends Phaser.Scene {
   private racerSprite?: RacerSpriteView
   private skidEffects?: SkidEffects
   private itemSystem?: ItemSystem
+  private touchControls?: TouchControls
   private trackSurfaceMap?: TrackSurfaceMap
   private speedText?: Phaser.GameObjects.Text
   private surfaceText?: Phaser.GameObjects.Text
@@ -182,9 +184,13 @@ export class RaceScene extends Phaser.Scene {
       ITEM_ROULETTE_TEXTURE_KEY,
     )
 
+    this.touchControls = new TouchControls(this)
+
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.itemSystem?.destroy()
       this.itemSystem = undefined
+      this.touchControls?.destroy()
+      this.touchControls = undefined
     })
 
     this.parallaxBackground.update(this.cameraState.angle)
@@ -209,9 +215,18 @@ export class RaceScene extends Phaser.Scene {
     }
 
     const deltaSeconds = Math.min(delta / 1000, 0.05)
-    const steerLeft = this.cursors.left.isDown || this.wasd.left.isDown
-    const steerRight = this.cursors.right.isDown || this.wasd.right.isDown
-    const powerslide = this.slideKey?.isDown ?? false
+    const touchState = this.touchControls?.state
+    const steerLeft =
+      this.cursors.left.isDown ||
+      this.wasd.left.isDown ||
+      (touchState?.steerLeft ?? false)
+    const steerRight =
+      this.cursors.right.isDown ||
+      this.wasd.right.isDown ||
+      (touchState?.steerRight ?? false)
+    const powerslide =
+      (this.slideKey?.isDown ?? false) ||
+      (touchState?.powerslide ?? false)
 
     this.currentSurface = this.trackSurfaceMap.sample(
       this.playerKart.x,
@@ -223,8 +238,14 @@ export class RaceScene extends Phaser.Scene {
 
     this.playerKart.update(
       {
-        accelerate: this.cursors.up.isDown || this.wasd.up.isDown,
-        brake: this.cursors.down.isDown || this.wasd.down.isDown,
+        accelerate:
+          this.cursors.up.isDown ||
+          this.wasd.up.isDown ||
+          (touchState?.accelerate ?? false),
+        brake:
+          this.cursors.down.isDown ||
+          this.wasd.down.isDown ||
+          (touchState?.brake ?? false),
         steerLeft,
         steerRight,
         powerslide,
@@ -261,10 +282,12 @@ export class RaceScene extends Phaser.Scene {
     this.syncCameraToKart()
     this.parallaxBackground?.update(this.cameraState.angle)
 
-    if (
+    const keyboardItemPressed =
       this.useItemKey &&
       Phaser.Input.Keyboard.JustDown(this.useItemKey)
-    ) {
+    const touchItemPressed = this.touchControls?.consumeItemPress() ?? false
+
+    if (keyboardItemPressed || touchItemPressed) {
       this.itemSystem?.useHeldItem()
     }
 
