@@ -20,6 +20,8 @@ const isTouchDevice =
   (navigator.maxTouchPoints > 0 || 'ontouchstart' in window)
 const isLandscapeTouch =
   isTouchDevice && window.innerWidth > window.innerHeight
+const isPortraitTouch =
+  isTouchDevice && window.innerHeight >= window.innerWidth
 const GAME_WIDTH = isLandscapeTouch
   ? Phaser.Math.Clamp(
       Math.round(600 * (window.innerWidth / window.innerHeight)),
@@ -27,8 +29,8 @@ const GAME_WIDTH = isLandscapeTouch
       1360,
     )
   : 800
-const GAME_HEIGHT = 600
-const HORIZON_Y = 250
+const GAME_HEIGHT = isPortraitTouch ? 700 : 600
+const HORIZON_Y = isPortraitTouch ? 292 : 250
 const GROUND_HEIGHT = GAME_HEIGHT - HORIZON_Y
 const TRACK_TEXTURE_KEY = 'prototype-track'
 const COLLISION_TEXTURE_KEY = 'prototype-collision'
