@@ -2,6 +2,8 @@ import Phaser from 'phaser'
 import { ItemSystem } from './ItemSystem'
 
 const COIN_FRAME_MARKER = 'retro-kart-coin-frame-'
+const BANANA_WORLD_FRAME = 'retro-kart-banana-world-frame'
+const BANANA_TEXTURE_KEY = 'item-banana'
 const BACKGROUND_TOLERANCE = 70
 const TRACK_COIN_SIZE_MULTIPLIER = 3
 const TRACK_TEXTURE_KEY = 'prototype-track'
@@ -59,10 +61,41 @@ export function installItemVisualFixes() {
     frameName: string,
     outputKey: string,
   ) {
+    const system = this as unknown as { scene: Phaser.Scene }
+
+    // Dropped bananas should use the dedicated banana-skin artwork rather than
+    // the tiny roulette icon that ItemSystem historically used for the world sprite.
+    if (outputKey === BANANA_WORLD_FRAME) {
+      const bananaTexture = system.scene.textures.get(BANANA_TEXTURE_KEY)
+      const bananaFrame = bananaTexture.get()
+      const canvasTexture = system.scene.textures.createCanvas(
+        outputKey,
+        bananaFrame.width,
+        bananaFrame.height,
+      )
+      if (!canvasTexture) return undefined
+
+      const sourceImage = bananaTexture.getSourceImage() as CanvasImageSource
+      canvasTexture.context.imageSmoothingEnabled = false
+      canvasTexture.context.clearRect(0, 0, bananaFrame.width, bananaFrame.height)
+      canvasTexture.context.drawImage(
+        sourceImage,
+        bananaFrame.cutX,
+        bananaFrame.cutY,
+        bananaFrame.cutWidth,
+        bananaFrame.cutHeight,
+        0,
+        0,
+        bananaFrame.width,
+        bananaFrame.height,
+      )
+      canvasTexture.refresh()
+      return outputKey
+    }
+
     const result = originalCreateStandaloneFrame.call(this, textureKey, frameName, outputKey)
     if (!result || !outputKey.includes(COIN_FRAME_MARKER)) return result
 
-    const system = this as unknown as { scene: Phaser.Scene }
     const texture = system.scene.textures.get(outputKey)
     const source = texture.getSourceImage() as HTMLCanvasElement
     const context = source.getContext('2d', { willReadFrequently: true })
