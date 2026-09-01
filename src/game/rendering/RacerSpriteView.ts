@@ -26,7 +26,10 @@ const OFF_ROAD_BOUNCE_SPEED_RATE = 18
 const SPIN_FRAME_TIME = 0.05
 const DEFAULT_SPIN_LOOPS = 2
 const STAR_EVENT = 'retro-kart:star-activated'
+const FEATHER_EVENT = 'retro-kart:feather-activated'
 const STAR_PARTICLE_INTERVAL = 0.045
+const FEATHER_JUMP_DURATION = 0.68
+const FEATHER_JUMP_HEIGHT = 78
 
 export class RacerSpriteView {
   private readonly scene: Phaser.Scene
@@ -43,6 +46,7 @@ export class RacerSpriteView {
   private starTimer = 0
   private starHue = 0
   private starParticleTimer = 0
+  private featherJumpTimer = 0
 
   constructor(
     scene: Phaser.Scene,
@@ -64,8 +68,10 @@ export class RacerSpriteView {
       .setDisplaySize(TARGET_HEIGHT, TARGET_HEIGHT)
 
     this.scene.events.on(STAR_EVENT, this.handleStarActivated, this)
+    this.scene.events.on(FEATHER_EVENT, this.handleFeatherActivated, this)
     this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scene.events.off(STAR_EVENT, this.handleStarActivated, this)
+      this.scene.events.off(FEATHER_EVENT, this.handleFeatherActivated, this)
     })
   }
 
@@ -87,7 +93,11 @@ export class RacerSpriteView {
 
     let bounceOffset = 0
 
-    if (isOffRoad && clampedSpeed > 0.03 && this.spinTimer <= 0) {
+    if (this.featherJumpTimer > 0) {
+      this.featherJumpTimer = Math.max(0, this.featherJumpTimer - deltaSeconds)
+      const progress = 1 - this.featherJumpTimer / FEATHER_JUMP_DURATION
+      bounceOffset = Math.sin(progress * Math.PI) * FEATHER_JUMP_HEIGHT
+    } else if (isOffRoad && clampedSpeed > 0.03 && this.spinTimer <= 0) {
       const bounceRate =
         OFF_ROAD_BOUNCE_BASE_RATE + OFF_ROAD_BOUNCE_SPEED_RATE * clampedSpeed
       this.bouncePhase += bounceRate * deltaSeconds
@@ -123,6 +133,14 @@ export class RacerSpriteView {
     if (racerId !== this.racerId) return
     this.starTimer = Math.max(this.starTimer, durationSeconds)
     this.starParticleTimer = 0
+  }
+
+  private handleFeatherActivated(racerId: string) {
+    if (racerId !== this.racerId) return
+    this.featherJumpTimer = FEATHER_JUMP_DURATION
+    this.spinFrameIndex = 0
+    this.spinFrameTimer = 0
+    this.spinTimer = FEATHER_JUMP_DURATION
   }
 
   private updateStarEffect(deltaSeconds: number, speedRatio: number) {
