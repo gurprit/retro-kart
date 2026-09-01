@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { Client, type Room } from '@colyseus/sdk'
+import type { CpuRacerSnapshot } from '../ai/ComputerRacerManager'
 import type { RacerProfile } from '../config/RacerProfiles'
 import { Mode7Renderer, type Mode7CameraState } from '../rendering/Mode7Renderer'
 
@@ -38,6 +39,8 @@ export class MultiplayerManager {
   private sendAccumulator = 0
   private connected = false
   private destroyed = false
+  private simulationHostId?: string
+  private latestCpuSnapshots: CpuRacerSnapshot[] = []
 
   constructor(
     scene: Phaser.Scene,
@@ -86,9 +89,21 @@ export class MultiplayerManager {
       room.onMessage('player-left', ({ id }: { id: string }) => {
         this.removeRemote(id)
       })
+      room.onMessage('simulation-host', ({ id }: { id: string | null }) => {
+        this.simulationHostId = id ?? undefined
+        console.log(
+          `[multiplayer] CPU simulation ${this.isSimulationHost ? 'HOST' : 'CLIENT'}`,
+        )
+      })
+      room.onMessage('cpus', (snapshots: CpuRacerSnapshot[]) => {
+        if (!Array.isArray(snapshots)) return
+        this.latestCpuSnapshots = snapshots.map((snapshot) => ({ ...snapshot }))
+      })
       room.onLeave(() => {
         this.connected = false
         this.room = undefined
+        this.simulationHostId = undefined
+        this.latestCpuSnapshots = []
         this.clearRemotes()
       })
       room.onError((code, message) => {
@@ -101,12 +116,20 @@ export class MultiplayerManager {
     }
   }
 
-  update(deltaSeconds: number, local: LocalKartState, camera: Mode7CameraState) {
+  update(
+    deltaSeconds: number,
+    local: LocalKartState,
+    camera: Mode7CameraState,
+    cpuSnapshots: readonly CpuRacerSnapshot[] = [],
+  ) {
     if (this.connected && this.room) {
       this.sendAccumulator += deltaSeconds
       if (this.sendAccumulator >= SEND_INTERVAL_SECONDS) {
         this.sendAccumulator %= SEND_INTERVAL_SECONDS
         this.room.send('kart', local)
+        if (this.isSimulationHost && cpuSnapshots.length > 0) {
+          this.room.send('cpus', cpuSnapshots)
+        }
       }
     }
 
@@ -121,12 +144,30 @@ export class MultiplayerManager {
     this.connected = false
     const room = this.room
     this.room = undefined
+    this.simulationHostId = undefined
+    this.latestCpuSnapshots = []
     if (room) void room.leave()
     this.clearRemotes()
   }
 
   get remoteCount() {
     return this.remoteRacers.size
+  }
+
+  get isSimulationHost() {
+    return Boolean(
+      this.connected &&
+        this.room &&
+        this.simulationHostId === this.room.sessionId,
+    )
+  }
+
+  get shouldSimulateCpus() {
+    return !this.connected || this.isSimulationHost
+  }
+
+  get cpuSnapshots(): readonly CpuRacerSnapshot[] {
+    return this.latestCpuSnapshots
   }
 
   private upsertRemote(incoming: KartSnapshot) {
