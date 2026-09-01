@@ -1,10 +1,12 @@
 import Phaser from 'phaser'
 import { gameConfig } from './game/config/gameConfig'
+import { installBananaTransparency } from './game/items/installBananaTransparency'
 import { installItemCourseEnhancements } from './game/items/installItemCourseEnhancements'
 import { installItemVisualFixes } from './game/items/installItemVisualFixes'
 import { installWorldPickupParticles } from './game/items/installWorldPickupParticles'
 
 installItemVisualFixes()
+installBananaTransparency()
 installItemCourseEnhancements()
 installWorldPickupParticles()
 new Phaser.Game(gameConfig)
