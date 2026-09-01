@@ -31,6 +31,8 @@ type CpuRacer = {
   skill: number
   pace: number
   recoveryTimer: number
+  recoveryForwardTimer: number
+  recoverySteering: number
   stuckTimer: number
 }
 
@@ -87,6 +89,8 @@ export class ComputerRacerManager {
         skill: Phaser.Math.FloatBetween(0.55, 0.92),
         pace: Phaser.Math.FloatBetween(0.72, 0.9),
         recoveryTimer: 0,
+        recoveryForwardTimer: 0,
+        recoverySteering: 0,
         stuckTimer: 0,
       })
     }
@@ -150,21 +154,47 @@ export class ComputerRacerManager {
 
     if (racer.recoveryTimer > 0) {
       racer.recoveryTimer = Math.max(0, racer.recoveryTimer - deltaSeconds)
+
+      // Steering is reversed while travelling backwards. Use the opposite
+      // control so the kart's nose rotates toward the open-road direction.
+      const reverseSteering = -racer.recoverySteering
+      racer.steering = Phaser.Math.Linear(racer.steering, reverseSteering, Math.min(1, deltaSeconds * 8))
       kart.update(
         {
           accelerate: false,
           brake: true,
-          steerLeft: racer.laneBias <= 0,
-          steerRight: racer.laneBias > 0,
+          steerLeft: reverseSteering < -0.08,
+          steerRight: reverseSteering > 0.08,
+          powerslide: false,
+        },
+        deltaSeconds,
+        handling,
+      )
+
+      if (racer.recoveryTimer === 0) {
+        racer.recoveryForwardTimer = 0.85
+      }
+    } else if (racer.recoveryForwardTimer > 0) {
+      racer.recoveryForwardTimer = Math.max(0, racer.recoveryForwardTimer - deltaSeconds)
+      racer.steering = Phaser.Math.Linear(
+        racer.steering,
+        racer.recoverySteering,
+        Math.min(1, deltaSeconds * 7),
+      )
+      kart.update(
+        {
+          accelerate: true,
+          brake: false,
+          steerLeft: racer.recoverySteering < -0.08,
+          steerRight: racer.recoverySteering > 0.08,
           powerslide: false,
         },
         deltaSeconds,
         handling,
       )
     } else {
-      if (racer.stuckTimer > 1.15) {
-        racer.recoveryTimer = 0.7
-        racer.stuckTimer = 0
+      if (racer.stuckTimer > 0.95) {
+        this.beginRecovery(racer)
       }
 
       const desiredSteering = this.chooseSteering(racer)
@@ -198,9 +228,58 @@ export class ComputerRacerManager {
       this.track.collidesAlongSegment(previousX, previousY, kart.x, kart.y)
     ) {
       kart.applyCollision(previousX, previousY)
-      racer.recoveryTimer = Math.max(racer.recoveryTimer, 0.36)
-      racer.laneBias *= -1
+      this.beginRecovery(racer)
     }
+  }
+
+  private beginRecovery(racer: CpuRacer) {
+    racer.recoverySteering = this.chooseEscapeSteering(racer)
+    racer.recoveryTimer = 1.35
+    racer.recoveryForwardTimer = 0
+    racer.stuckTimer = 0
+    racer.laneBias = Phaser.Math.Clamp(
+      racer.laneBias + racer.recoverySteering * 0.08,
+      -0.24,
+      0.24,
+    )
+  }
+
+  private chooseEscapeSteering(racer: CpuRacer) {
+    const kart = racer.kart
+    const candidates = [-1, -0.7, 0.7, 1]
+    const probeDistances = [0.025, 0.05, 0.085, 0.12].map(
+      (distance) => this.worldScale * distance,
+    )
+    let bestSteering = racer.laneBias < 0 ? -1 : 1
+    let bestScore = Number.NEGATIVE_INFINITY
+
+    for (const steering of candidates) {
+      const probeAngle = kart.angle + steering * 1.05
+      const forwardX = Math.sin(probeAngle)
+      const forwardY = -Math.cos(probeAngle)
+      let score = 0
+
+      for (let index = 0; index < probeDistances.length; index += 1) {
+        const distance = probeDistances[index]
+        const surface = this.track.sample(
+          kart.x + forwardX * distance,
+          kart.y + forwardY * distance,
+        )
+        const weight = index + 1
+
+        if (surface === 'road') score += 5 * weight
+        else if (surface === 'offRoad') score += 0.5 * weight
+        else if (surface === 'barrier') score -= 9 * weight
+        else score -= 11 * weight
+      }
+
+      if (score > bestScore) {
+        bestScore = score
+        bestSteering = steering
+      }
+    }
+
+    return bestSteering
   }
 
   private cpuHandling(surface: TrackSurface, pace: number): KartSurfaceHandling {
