@@ -88,7 +88,7 @@ export function installWorldPickupParticles() {
   ) {
     const system = this as unknown as ItemSystemInternals
     system.retroKartWorldParticleCamera = camera
-    spawnWorldBurst(system, worldX, worldY, 'coin')
+    spawnCoinWorldBurst(system, worldX, worldY)
   }
 
   prototype.checkItemBoxPickup = function (this: ItemSystem) {
@@ -109,7 +109,6 @@ export function installWorldPickupParticles() {
 
       itemBox.active = false
       system.refreshGroundPanels()
-      spawnWorldBurst(system, itemBox.x, itemBox.y, 'itemBox')
       system.startRoulette()
 
       system.scene.time.delayedCall(ITEM_BOX_RESPAWN_MS, () => {
@@ -121,67 +120,80 @@ export function installWorldPickupParticles() {
   }
 }
 
-function spawnWorldBurst(
+function spawnCoinWorldBurst(
   system: ItemSystemInternals,
   worldX: number,
   worldY: number,
-  kind: 'coin' | 'itemBox',
 ) {
   const particles = system.retroKartWorldParticles ?? []
   system.retroKartWorldParticles = particles
 
-  const count = kind === 'coin' ? 44 : 34
   const worldScale = system.worldScale
-  const horizontalSpeed = worldScale * (kind === 'coin' ? 0.19 : 0.16)
-  const verticalSpeed = worldScale * (kind === 'coin' ? 0.24 : 0.2)
-  const gravity = worldScale * 0.78
+  const horizontalSpeed = worldScale * 0.16
+  const verticalSpeed = worldScale * 0.39
+  const gravity = worldScale * 0.9
 
-  for (let index = 0; index < count; index += 1) {
+  for (let index = 0; index < 48; index += 1) {
     const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
-    const speed = Phaser.Math.FloatBetween(horizontalSpeed * 0.35, horizontalSpeed)
-    const size = Phaser.Math.FloatBetween(3.5, kind === 'coin' ? 8 : 7)
+    const speed = Phaser.Math.FloatBetween(horizontalSpeed * 0.25, horizontalSpeed)
+    const size = Phaser.Math.FloatBetween(3.5, 8)
     const body = system.scene.add
-      .rectangle(0, 0, size, size * Phaser.Math.FloatBetween(0.55, 1.45), particleColour(kind, index), 1)
+      .rectangle(
+        0,
+        0,
+        size,
+        size * Phaser.Math.FloatBetween(0.55, 1.45),
+        particleColour(index),
+        1,
+      )
       .setDepth(82)
       .setVisible(false)
 
     particles.push({
       x: worldX,
       y: worldY,
-      z: worldScale * Phaser.Math.FloatBetween(0.003, 0.012),
+      z: worldScale * Phaser.Math.FloatBetween(0.004, 0.014),
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
-      vz: Phaser.Math.FloatBetween(verticalSpeed * 0.55, verticalSpeed),
+      vz: Phaser.Math.FloatBetween(verticalSpeed * 0.72, verticalSpeed * 1.12),
       gravity,
-      bounce: Phaser.Math.FloatBetween(0.28, 0.5),
+      bounce: Phaser.Math.FloatBetween(0.3, 0.52),
       drag: Phaser.Math.FloatBetween(2.6, 4.4),
-      life: Phaser.Math.FloatBetween(0.9, 1.45),
-      maxLife: 1.45,
+      life: Phaser.Math.FloatBetween(1.05, 1.65),
+      maxLife: 1.65,
       rotation: Phaser.Math.FloatBetween(-Math.PI, Math.PI),
-      spin: Phaser.Math.FloatBetween(-9, 9),
+      spin: Phaser.Math.FloatBetween(-10, 10),
       body,
     })
   }
 
-  for (let index = 0; index < (kind === 'coin' ? 14 : 10); index += 1) {
+  for (let index = 0; index < 18; index += 1) {
     const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
     const body = system.scene.add
-      .ellipse(0, 0, Phaser.Math.FloatBetween(2, 4.5), Phaser.Math.FloatBetween(2, 4.5), 0xfff6b0, 0.95)
+      .ellipse(
+        0,
+        0,
+        Phaser.Math.FloatBetween(2, 4.5),
+        Phaser.Math.FloatBetween(2, 4.5),
+        0xfff6b0,
+        0.95,
+      )
       .setDepth(83)
       .setVisible(false)
 
+    const sparkSpeed = Phaser.Math.FloatBetween(horizontalSpeed * 0.3, horizontalSpeed * 1.05)
     particles.push({
       x: worldX,
       y: worldY,
-      z: worldScale * 0.01,
-      vx: Math.cos(angle) * Phaser.Math.FloatBetween(horizontalSpeed * 0.4, horizontalSpeed * 1.15),
-      vy: Math.sin(angle) * Phaser.Math.FloatBetween(horizontalSpeed * 0.4, horizontalSpeed * 1.15),
-      vz: Phaser.Math.FloatBetween(verticalSpeed * 0.65, verticalSpeed * 1.15),
-      gravity: gravity * 1.12,
-      bounce: 0.2,
-      drag: 4.6,
-      life: Phaser.Math.FloatBetween(0.5, 0.85),
-      maxLife: 0.85,
+      z: worldScale * 0.012,
+      vx: Math.cos(angle) * sparkSpeed,
+      vy: Math.sin(angle) * sparkSpeed,
+      vz: Phaser.Math.FloatBetween(verticalSpeed * 0.9, verticalSpeed * 1.25),
+      gravity: gravity * 1.08,
+      bounce: 0.22,
+      drag: 4.8,
+      life: Phaser.Math.FloatBetween(0.62, 0.98),
+      maxLife: 0.98,
       rotation: 0,
       spin: 0,
       body,
@@ -225,7 +237,7 @@ function updateWorldParticles(
       particle.vy *= groundDrag
       particle.spin *= groundDrag
     } else {
-      const airDrag = Math.exp(-0.35 * dt)
+      const airDrag = Math.exp(-0.28 * dt)
       particle.vx *= airDrag
       particle.vy *= airDrag
     }
@@ -250,12 +262,7 @@ function updateWorldParticles(
   }
 }
 
-function particleColour(kind: 'coin' | 'itemBox', index: number) {
-  if (kind === 'itemBox') {
-    const palette = [0xffc400, 0xffffff, 0xff7a00, 0xd92300]
-    return palette[index % palette.length]
-  }
-
+function particleColour(index: number) {
   const palette = [0xfff0a6, 0xffd21f, 0xffa000, 0xffc400, 0xffffff]
   return palette[index % palette.length]
 }
