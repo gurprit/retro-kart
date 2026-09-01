@@ -1,15 +1,29 @@
 import Phaser from 'phaser'
+import { RacerSpriteView } from '../rendering/RacerSpriteView'
 import { ItemSystem } from './ItemSystem'
 
 const LIGHTNING_EVENT = 'retro-kart:lightning-activated'
 const LIGHTNING_DURATION_SECONDS = 5
+const LIGHTNING_SHRINK_SCALE = 0.5
 
+type LightningShrinkState = {
+  scene: Phaser.Scene
+  shrinkUntil: number
+  handler: (ownerId: string, durationSeconds: number) => void
+}
+
+const shrinkStates = new WeakMap<RacerSpriteView, LightningShrinkState>()
 let installed = false
 
 export function installLightningPowerUp() {
   if (installed) return
   installed = true
 
+  installItemBehavior()
+  installRacerShrinkBehavior()
+}
+
+function installItemBehavior() {
   const prototype = ItemSystem.prototype as unknown as {
     activateItem: (item: string) => void
     updateHeldHud: () => void
@@ -53,6 +67,75 @@ export function installLightningPowerUp() {
     }
     if (system.heldItem === 'fireball') {
       system.heldText.setText('LIGHTNING  [SPACE]')
+    }
+  }
+}
+
+function installRacerShrinkBehavior() {
+  const prototype = RacerSpriteView.prototype as unknown as {
+    update: (
+      steerDirection: number,
+      speedRatio: number,
+      isOffRoad: boolean,
+      isPowersliding: boolean,
+      deltaSeconds: number,
+    ) => void
+  }
+
+  const originalUpdate = prototype.update
+  prototype.update = function (
+    this: RacerSpriteView,
+    steerDirection: number,
+    speedRatio: number,
+    isOffRoad: boolean,
+    isPowersliding: boolean,
+    deltaSeconds: number,
+  ) {
+    const racer = this as unknown as {
+      scene: Phaser.Scene
+      racerId: string
+      sprite: Phaser.GameObjects.Image
+    }
+
+    let state = shrinkStates.get(this)
+    if (!state) {
+      const handler = (ownerId: string, durationSeconds: number) => {
+        if (ownerId === racer.racerId) return
+        const current = shrinkStates.get(this)
+        if (!current) return
+        current.shrinkUntil = Math.max(
+          current.shrinkUntil,
+          racer.scene.time.now + durationSeconds * 1000,
+        )
+      }
+
+      state = {
+        scene: racer.scene,
+        shrinkUntil: 0,
+        handler,
+      }
+      shrinkStates.set(this, state)
+      racer.scene.events.on(LIGHTNING_EVENT, handler)
+      racer.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+        racer.scene.events.off(LIGHTNING_EVENT, handler)
+        shrinkStates.delete(this)
+      })
+    }
+
+    originalUpdate.call(
+      this,
+      steerDirection,
+      speedRatio,
+      isOffRoad,
+      isPowersliding,
+      deltaSeconds,
+    )
+
+    if (racer.scene.time.now < state.shrinkUntil) {
+      racer.sprite.setDisplaySize(
+        racer.sprite.displayWidth * LIGHTNING_SHRINK_SCALE,
+        racer.sprite.displayHeight * LIGHTNING_SHRINK_SCALE,
+      )
     }
   }
 }
