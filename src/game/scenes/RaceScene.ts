@@ -394,7 +394,17 @@ export class RaceScene extends Phaser.Scene {
     const keyboardItemPressed =
       this.useItemKey && Phaser.Input.Keyboard.JustDown(this.useItemKey)
     const touchItemPressed = this.touchControls?.consumeItemPress() ?? false
-    if (keyboardItemPressed || touchItemPressed) this.itemSystem?.useHeldItem()
+    if (keyboardItemPressed || touchItemPressed) {
+      const usedItem = this.itemSystem?.useHeldItem()
+      if (usedItem) {
+        this.multiplayer?.sendItemUse(usedItem, {
+          x: this.playerKart.x,
+          y: this.playerKart.y,
+          angle: this.playerKart.angle,
+          speedRatio: this.playerKart.speedRatio,
+        })
+      }
+    }
 
     this.itemSystem?.update(deltaSeconds, this.cameraState)
 
