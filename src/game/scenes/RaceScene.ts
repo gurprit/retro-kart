@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { ComputerRacerManager } from '../ai/ComputerRacerManager'
 import { RACERS, type RacerProfile } from '../config/RacerProfiles'
 import { PlayerKart } from '../entities/PlayerKart'
 import { SkidEffects } from '../effects/SkidEffects'
@@ -68,6 +69,7 @@ export class RaceScene extends Phaser.Scene {
   private mode7Renderer?: Mode7Renderer
   private parallaxBackground?: ParallaxBackground
   private playerKart?: PlayerKart
+  private computerRacers?: ComputerRacerManager
   private racerSprite?: RacerSpriteView
   private skidEffects?: SkidEffects
   private itemSystem?: ItemSystem
@@ -149,12 +151,26 @@ export class RaceScene extends Phaser.Scene {
     )
 
     this.selectedRacer = RACERS[Math.floor(Math.random() * RACERS.length)]
+    const startX = this.mode7Renderer.sourceWidth * START_GRID.xRatio
+    const startY = this.mode7Renderer.sourceHeight * START_GRID.yRatio
+
     this.playerKart = new PlayerKart(
-      this.mode7Renderer.sourceWidth * START_GRID.xRatio,
-      this.mode7Renderer.sourceHeight * START_GRID.yRatio,
+      startX,
+      startY,
       START_GRID.heading,
       worldScale,
       this.selectedRacer,
+    )
+
+    this.computerRacers = new ComputerRacerManager(
+      this,
+      this.mode7Renderer,
+      this.trackSurfaceMap,
+      worldScale,
+      RACERS,
+      startX,
+      startY,
+      START_GRID.heading,
     )
 
     this.currentSurface = this.trackSurfaceMap.sample(this.playerKart.x, this.playerKart.y)
@@ -183,35 +199,60 @@ export class RaceScene extends Phaser.Scene {
       ITEM_ROULETTE_TEXTURE_KEY,
       {
         ownerId: 'player',
-        getRacers: () =>
-          this.playerKart
-            ? [{
-                id: 'player',
-                x: this.playerKart.x,
-                y: this.playerKart.y,
-                angle: this.playerKart.angle,
-                speedRatio: this.playerKart.speedRatio,
-                invulnerable: this.playerKart.isInvulnerable,
-              }]
-            : [],
+        getRacers: () => {
+          const racers = this.computerRacers?.itemStates ?? []
+          if (!this.playerKart) return racers
+          return [
+            {
+              id: 'player',
+              x: this.playerKart.x,
+              y: this.playerKart.y,
+              angle: this.playerKart.angle,
+              speedRatio: this.playerKart.speedRatio,
+              invulnerable: this.playerKart.isInvulnerable,
+            },
+            ...racers,
+          ]
+        },
         spinOutRacer: (racerId, blastX, blastY, pushStrength, controlLockSeconds) => {
-          if (racerId !== 'player' || !this.playerKart) return
-          this.playerKart.applySpinOut(
+          if (racerId === 'player' && this.playerKart) {
+            this.playerKart.applySpinOut(
+              blastX,
+              blastY,
+              pushStrength,
+              controlLockSeconds,
+            )
+            this.racerSprite?.triggerSpin(3)
+            return
+          }
+          this.computerRacers?.spinOut(
+            racerId,
             blastX,
             blastY,
             pushStrength,
             controlLockSeconds,
           )
-          this.racerSprite?.triggerSpin(3)
         },
         boostRacer: (racerId, multiplier, durationSeconds) => {
-          if (racerId === 'player') this.playerKart?.applyBoost(multiplier, durationSeconds)
+          if (racerId === 'player') {
+            this.playerKart?.applyBoost(multiplier, durationSeconds)
+            return
+          }
+          this.computerRacers?.boost(racerId, multiplier, durationSeconds)
         },
         grantStar: (racerId, durationSeconds) => {
-          if (racerId === 'player') this.playerKart?.grantStar(durationSeconds)
+          if (racerId === 'player') {
+            this.playerKart?.grantStar(durationSeconds)
+            return
+          }
+          this.computerRacers?.grantStar(racerId, durationSeconds)
         },
         addCoin: (racerId, amount) => {
-          if (racerId === 'player') this.playerKart?.addCoins(amount)
+          if (racerId === 'player') {
+            this.playerKart?.addCoins(amount)
+            return
+          }
+          this.computerRacers?.addCoin(racerId, amount)
         },
         isBarrierAt: (x, y) => this.trackSurfaceMap?.sample(x, y) === 'barrier',
       },
@@ -222,12 +263,15 @@ export class RaceScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.itemSystem?.destroy()
       this.itemSystem = undefined
+      this.computerRacers?.destroy()
+      this.computerRacers = undefined
       this.touchControls?.destroy()
       this.touchControls = undefined
     })
 
     this.parallaxBackground.update(this.cameraState.angle)
     this.mode7Renderer.render(this.cameraState)
+    this.computerRacers.update(0, this.cameraState)
     this.itemSystem.update(0, this.cameraState)
     this.updateHud()
   }
@@ -300,6 +344,7 @@ export class RaceScene extends Phaser.Scene {
 
     this.syncCameraToKart()
     this.parallaxBackground?.update(this.cameraState.angle)
+    this.computerRacers?.update(deltaSeconds, this.cameraState)
 
     const keyboardItemPressed =
       this.useItemKey && Phaser.Input.Keyboard.JustDown(this.useItemKey)
@@ -347,7 +392,7 @@ export class RaceScene extends Phaser.Scene {
   }
 
   private createHud() {
-    this.add.text(20, 18, 'RETRO KART // ITEMS TEST', {
+    this.add.text(20, 18, 'RETRO KART // 20 CPU RACERS', {
       fontFamily: 'monospace', fontSize: '20px', color: '#ffffff',
       stroke: '#000000', strokeThickness: 4,
     }).setDepth(30)
