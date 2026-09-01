@@ -64,7 +64,7 @@ export class TouchControls {
   private createPortraitGameBoyLayout() {
     const width = this.scene.scale.width
     const height = this.scene.scale.height
-    const gameBottom = 600
+    const gameBottom = 700
     const deckHeight = height - gameBottom
 
     const shell = this.scene.add.graphics().setDepth(70).setScrollFactor(0)
@@ -77,9 +77,9 @@ export class TouchControls {
     this.track(shell)
 
     const brand = this.scene.add
-      .text(width / 2, gameBottom + 52, 'RETRO KART', {
+      .text(width / 2, gameBottom + 48, 'RETRO KART', {
         fontFamily: 'monospace',
-        fontSize: '24px',
+        fontSize: '27px',
         fontStyle: 'bold',
         color: '#51496d',
       })
@@ -88,21 +88,23 @@ export class TouchControls {
       .setScrollFactor(0)
     this.track(brand)
 
-    // Push the physical controls lower into the body and make the D-pad much
-    // more thumb-friendly than the first pass.
-    const dpadX = 176
-    const dpadY = gameBottom + 292
-    const actionX = width - 148
-    const actionY = gameBottom + 305
+    // Use the full lower half of the phone like a real handheld shell. The
+    // control centres are derived from the available deck height so they sit
+    // lower on tall phones instead of bunching up beneath the race screen.
+    const controlY = gameBottom + deckHeight * 0.54
+    const dpadX = 190
+    const dpadY = controlY
+    const actionX = width - 170
+    const actionY = controlY + 12
 
-    this.createDpad(dpadX, dpadY, 1.42)
-    this.createAButtonWithDrift(actionX, actionY, 1.1)
-    this.createBButton(actionX - 130, actionY - 30, 48)
-    this.createStartButton(width / 2 + 2, gameBottom + 400, 1)
-    this.createSpeakerGrille(width - 66, gameBottom + 405, 1)
+    this.createDpad(dpadX, dpadY, 1.68)
+    this.createAButtonWithDrift(actionX, actionY, 1.3)
+    this.createBButton(actionX - 150, actionY - 28, 60)
+    this.createStartButton(width / 2 + 8, height - 88, 1.12)
+    this.createSpeakerGrille(width - 76, height - 82, 1.12)
 
     const accent = this.scene.add
-      .circle(32, gameBottom + 54, 6, 0x51496d, 0.9)
+      .circle(34, gameBottom + 52, 7, 0x51496d, 0.9)
       .setDepth(73)
       .setScrollFactor(0)
     this.track(accent)
@@ -118,8 +120,6 @@ export class TouchControls {
     shell.fillRoundedRect(0, 0, wingWidth + 26, height, 36)
     shell.fillRoundedRect(width - wingWidth - 26, 0, wingWidth + 26, height, 36)
 
-    // The old centre panel was opaque and hid the race. Keep only a subtle
-    // smoked-glass tint and bezel so the gameplay remains fully visible.
     shell.fillStyle(0x101414, 0.1)
     shell.fillRoundedRect(wingWidth - 2, 10, width - wingWidth * 2 + 4, height - 20, 24)
     shell.lineStyle(4, 0x262626, 0.9)
@@ -130,15 +130,15 @@ export class TouchControls {
     shell.strokeRoundedRect(width - wingWidth - 26, 0, wingWidth + 26, height, 36)
     this.track(shell)
 
-    const dpadScale = Phaser.Math.Clamp(height / 560, 0.9, 1.05)
+    const dpadScale = Phaser.Math.Clamp(height / 520, 1, 1.18)
     this.createDpad(wingWidth * 0.53, height * 0.57, dpadScale)
 
     const actionX = width - wingWidth * 0.5
     const actionY = height * 0.66
-    this.createAButtonWithDrift(actionX, actionY, dpadScale * 0.98)
-    this.createBButton(actionX - 10, actionY - 122 * dpadScale, 40 * dpadScale)
-    this.createStartButton(width - wingWidth * 0.52, 58, 0.82)
-    this.createSpeakerGrille(width - wingWidth * 0.52, height - 48, 0.72)
+    this.createAButtonWithDrift(actionX, actionY, dpadScale * 1.05)
+    this.createBButton(actionX - 10, actionY - 122 * dpadScale, 44 * dpadScale)
+    this.createStartButton(width - wingWidth * 0.52, 58, 0.88)
+    this.createSpeakerGrille(width - wingWidth * 0.52, height - 48, 0.76)
 
     const led = this.scene.add
       .circle(wingWidth * 0.5, 33, 5, 0x51496d, 1)
@@ -235,8 +235,6 @@ export class TouchControls {
       const nx = dx / distance
       const ny = dy / distance
 
-      // Overlapping thresholds create true 8-way input. Up now accelerates,
-      // so up-left/up-right naturally become accelerating steering diagonals.
       this.steerLeftDown = nx < -0.34
       this.steerRightDown = nx > 0.34
       this.brakeDown = ny > 0.34
@@ -489,7 +487,6 @@ export class TouchControls {
   private releaseActionGesture() {
     this.actionPointerId = undefined
     this.powerslideDown = false
-    // Keep accelerating if the D-pad is still held upward.
     if (this.dpadPointerId === undefined) this.accelerateDown = false
   }
 
