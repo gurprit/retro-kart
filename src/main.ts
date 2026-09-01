@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { gameConfig } from './game/config/gameConfig'
 import { installBananaTransparency } from './game/items/installBananaTransparency'
+import { installCoinHudAnchor } from './game/items/installCoinHudAnchor'
 import { installItemCourseEnhancements } from './game/items/installItemCourseEnhancements'
 import { installItemVisualFixes } from './game/items/installItemVisualFixes'
 import { installLightningPowerUp } from './game/items/installLightningPowerUp'
@@ -11,6 +12,7 @@ installBananaTransparency()
 installItemCourseEnhancements()
 installWorldPickupParticles()
 installLightningPowerUp()
+installCoinHudAnchor()
 new Phaser.Game(gameConfig)
 
 const isTouchDevice =
