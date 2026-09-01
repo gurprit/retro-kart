@@ -39,6 +39,10 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
 
   scale: {
     mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    // In portrait, pin the handheld canvas to the top so the race screen sits
+    // directly beneath the browser chrome and the controls use the space below.
+    autoCenter: isPortrait
+      ? Phaser.Scale.CENTER_HORIZONTALLY
+      : Phaser.Scale.CENTER_BOTH,
   },
 }
