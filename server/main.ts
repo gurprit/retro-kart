@@ -18,6 +18,35 @@ type CpuSnapshot = {
   steering: number
 }
 
+type NetworkItemType =
+  | 'banana'
+  | 'bomb'
+  | 'coin'
+  | 'egg'
+  | 'fireball'
+  | 'greenShell'
+  | 'redShell'
+  | 'mushroom'
+  | 'star'
+
+type ItemUsePayload = {
+  item?: NetworkItemType
+  x?: number
+  y?: number
+  angle?: number
+  speedRatio?: number
+}
+
+type NetworkItemUse = {
+  id: string
+  ownerId: string
+  item: NetworkItemType
+  x: number
+  y: number
+  angle: number
+  speedRatio: number
+}
+
 type JoinOptions = {
   racerKey?: string
   x?: number
@@ -25,11 +54,24 @@ type JoinOptions = {
   angle?: number
 }
 
+const ITEM_TYPES = new Set<NetworkItemType>([
+  'banana',
+  'bomb',
+  'coin',
+  'egg',
+  'fireball',
+  'greenShell',
+  'redShell',
+  'mushroom',
+  'star',
+])
+
 class RetroKartRoom extends Room {
   maxClients = 21
   private readonly players = new Map<string, KartSnapshot>()
   private simulationHostId?: string
   private latestCpuSnapshots: CpuSnapshot[] = []
+  private nextItemEventId = 1
 
   onCreate() {
     this.onMessage('kart', (client, payload: Partial<KartSnapshot>) => {
@@ -62,6 +104,28 @@ class RetroKartRoom extends Room {
         }))
 
       this.broadcast('cpus', this.latestCpuSnapshots, { except: client })
+    })
+
+    this.onMessage('item-use', (client, payload: ItemUsePayload) => {
+      if (!payload || !ITEM_TYPES.has(payload.item as NetworkItemType)) return
+
+      const player = this.players.get(client.sessionId)
+      if (!player) return
+
+      const event: NetworkItemUse = {
+        id: `item-${this.nextItemEventId++}`,
+        ownerId: client.sessionId,
+        item: payload.item as NetworkItemType,
+        x: Number.isFinite(payload.x) ? Number(payload.x) : player.x,
+        y: Number.isFinite(payload.y) ? Number(payload.y) : player.y,
+        angle: Number.isFinite(payload.angle) ? Number(payload.angle) : player.angle,
+        speedRatio: Number.isFinite(payload.speedRatio)
+          ? Number(payload.speedRatio)
+          : player.speedRatio,
+      }
+
+      this.broadcast('item-use', event, { except: client })
+      console.log(`[retro_kart] ${client.sessionId} used ${event.item} (${event.id})`)
     })
   }
 
