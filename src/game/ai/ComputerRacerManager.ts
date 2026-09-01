@@ -29,6 +29,7 @@ type CpuRacer = {
   steering: number
   laneBias: number
   skill: number
+  pace: number
   recoveryTimer: number
   stuckTimer: number
 }
@@ -82,8 +83,9 @@ export class ComputerRacerManager {
         sprite,
         frameKeys,
         steering: 0,
-        laneBias: Phaser.Math.FloatBetween(-0.16, 0.16),
-        skill: Phaser.Math.FloatBetween(0.82, 1),
+        laneBias: Phaser.Math.FloatBetween(-0.2, 0.2),
+        skill: Phaser.Math.FloatBetween(0.55, 0.92),
+        pace: Phaser.Math.FloatBetween(0.72, 0.9),
         recoveryTimer: 0,
         stuckTimer: 0,
       })
@@ -141,6 +143,7 @@ export class ComputerRacerManager {
     const surface = this.track.sample(kart.x, kart.y)
     const previousX = kart.x
     const previousY = kart.y
+    const handling = this.cpuHandling(surface, racer.pace)
 
     if (Math.abs(kart.speedRatio) < 0.08) racer.stuckTimer += deltaSeconds
     else racer.stuckTimer = Math.max(0, racer.stuckTimer - deltaSeconds * 2)
@@ -156,7 +159,7 @@ export class ComputerRacerManager {
           powerslide: false,
         },
         deltaSeconds,
-        SURFACE_HANDLING[surface],
+        handling,
       )
     } else {
       if (racer.stuckTimer > 1.15) {
@@ -168,21 +171,26 @@ export class ComputerRacerManager {
       racer.steering = Phaser.Math.Linear(
         racer.steering,
         desiredSteering,
-        Math.min(1, deltaSeconds * (4.8 + racer.skill * 2.2)),
+        Math.min(1, deltaSeconds * (3.4 + racer.skill * 2.2)),
       )
 
-      const hardCorner = Math.abs(racer.steering) > 0.52
-      const shouldBrake = hardCorner && Math.abs(kart.speedRatio) > 0.9 * racer.skill
+      const hardCorner = Math.abs(racer.steering) > 0.48
+      const shouldBrake = hardCorner && Math.abs(kart.speedRatio) > 0.68 + racer.skill * 0.18
+      const canPowerslide = racer.skill > 0.7
+
       kart.update(
         {
           accelerate: !shouldBrake,
           brake: shouldBrake,
           steerLeft: racer.steering < -0.09,
           steerRight: racer.steering > 0.09,
-          powerslide: hardCorner && Math.abs(kart.speedRatio) > 0.42,
+          powerslide:
+            canPowerslide &&
+            hardCorner &&
+            Math.abs(kart.speedRatio) > 0.48 + (1 - racer.skill) * 0.12,
         },
         deltaSeconds,
-        SURFACE_HANDLING[surface],
+        handling,
       )
     }
 
@@ -192,6 +200,15 @@ export class ComputerRacerManager {
       kart.applyCollision(previousX, previousY)
       racer.recoveryTimer = Math.max(racer.recoveryTimer, 0.36)
       racer.laneBias *= -1
+    }
+  }
+
+  private cpuHandling(surface: TrackSurface, pace: number): KartSurfaceHandling {
+    const base = SURFACE_HANDLING[surface]
+    return {
+      speedMultiplier: base.speedMultiplier * pace,
+      gripMultiplier: base.gripMultiplier,
+      dragMultiplier: base.dragMultiplier,
     }
   }
 
@@ -230,7 +247,7 @@ export class ComputerRacerManager {
         else score -= 10 * weight
       }
 
-      score += Phaser.Math.FloatBetween(-0.08, 0.08) * (1 - racer.skill)
+      score += Phaser.Math.FloatBetween(-0.24, 0.24) * (1 - racer.skill)
       if (score > bestScore) {
         bestScore = score
         bestSteering = steering
