@@ -1,6 +1,8 @@
 import Phaser from 'phaser'
 import { gameConfig } from './game/config/gameConfig'
+import { installItemVisualFixes } from './game/items/installItemVisualFixes'
 
+installItemVisualFixes()
 new Phaser.Game(gameConfig)
 
 const isTouchDevice =
