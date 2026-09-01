@@ -4,11 +4,9 @@ import { ItemSystem } from './ItemSystem'
 const TRACK_TEXTURE_KEY = 'prototype-track'
 const ROUTE_SAMPLE_COUNT = 320
 const COIN_SAMPLE_STEP = 6
-const ITEM_BOX_CLUSTER_STEP = 72
+const ITEM_BOX_COUNT = 10
 const ITEM_BOX_RESPAWN_MS = 5000
-const ITEM_BOX_LATERAL_SPACING_RATIO = 0.047
-const ITEM_BOX_LONGITUDINAL_SPACING_RATIO = 0.048
-const ITEM_BOX_CLUSTER_MIN_DISTANCE_RATIO = 0.18
+const ITEM_BOX_MIN_DISTANCE_RATIO = 0.115
 const CORNER_LOOKAHEAD = 5
 const CORNER_MIN_ANGLE = 0.055
 const CORNER_MIN_INDEX_DISTANCE = 24
@@ -31,6 +29,18 @@ const COURSE_ROUTE = [
 type RoutePoint = { x: number; y: number }
 type ItemBoxState = { id: string; x: number; y: number; active: boolean }
 type CameraState = unknown
+
+type CourseBasis = {
+  tangentX: number
+  tangentY: number
+  normalX: number
+  normalY: number
+}
+
+type CornerCandidate = {
+  index: number
+  angle: number
+}
 
 type ItemSystemInternals = {
   scene: Phaser.Scene
@@ -69,18 +79,6 @@ type ItemSystemInternals = {
   retroKartLastCamera?: CameraState
 }
 
-type CourseBasis = {
-  tangentX: number
-  tangentY: number
-  normalX: number
-  normalY: number
-}
-
-type CornerCandidate = {
-  index: number
-  angle: number
-}
-
 let installed = false
 
 export function installItemCourseEnhancements() {
@@ -91,6 +89,11 @@ export function installItemCourseEnhancements() {
     update: (deltaSeconds: number, camera: CameraState) => void
     checkItemBoxPickup: () => void
     spawnTrackCoins: () => void
+    createCoinPickupVisual: (
+      worldX: number,
+      worldY: number,
+      camera: CameraState,
+    ) => void
   }
 
   const originalUpdate = prototype.update
@@ -109,55 +112,25 @@ export function installItemCourseEnhancements() {
     const roadSampler = createRoadSampler(system.scene)
     const route = buildCourseRoute(system.renderer.sourceWidth, system.renderer.sourceHeight)
     const clearance = Math.max(6, system.worldScale * 0.007)
-    const lateralSpacing = system.worldScale * ITEM_BOX_LATERAL_SPACING_RATIO
-    const longitudinalSpacing = system.worldScale * ITEM_BOX_LONGITUDINAL_SPACING_RATIO
-    const minimumClusterDistance = system.worldScale * ITEM_BOX_CLUSTER_MIN_DISTANCE_RATIO
 
-    const itemBoxes: ItemBoxState[] = []
-    const clusterCentres: RoutePoint[] = []
-
-    for (let index = 0; index < route.length; index += ITEM_BOX_CLUSTER_STEP) {
-      const centre = route[index]
-      const basis = getCourseBasis(route, index, 3)
-      const tooCloseToExistingCluster = clusterCentres.some((other) => {
-        const dx = other.x - centre.x
-        const dy = other.y - centre.y
-        return dx * dx + dy * dy < minimumClusterDistance * minimumClusterDistance
-      })
-      if (tooCloseToExistingCluster) continue
-
-      const wideGrid = buildItemBoxGrid(centre, basis, lateralSpacing, longitudinalSpacing)
-      const safeWideGrid = wideGrid.every((point) =>
-        isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt),
-      )
-
-      const points = safeWideGrid
-        ? wideGrid
-        : buildItemBoxColumn(centre, basis, longitudinalSpacing * 0.72)
-            .filter((point) =>
-              isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt),
-            )
-
-      if (points.length < 3) continue
-
-      clusterCentres.push(centre)
-      points.forEach((point, pointIndex) => {
-        itemBoxes.push({
-          id: `course-box-cluster-${clusterCentres.length}-${pointIndex + 1}`,
-          x: point.x,
-          y: point.y,
-          active: true,
-        })
-      })
-    }
-
+    const itemBoxes = buildTenItemBoxes(
+      route,
+      clearance,
+      system.worldScale,
+      roadSampler,
+      system.hooks.isBarrierAt,
+    )
     system.itemBoxes.splice(0, system.itemBoxes.length, ...itemBoxes)
 
     const coinPositions: RoutePoint[] = []
     const spawnCoin = (point: RoutePoint, minimumSeparation: number) => {
       if (!isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt)) return
       if (isTooCloseToItemBox(point, itemBoxes, system.worldScale * 0.033)) return
-      if (coinPositions.some((coin) => distanceSquared(coin, point) < minimumSeparation * minimumSeparation)) return
+      if (
+        coinPositions.some(
+          (coin) => distanceSquared(coin, point) < minimumSeparation * minimumSeparation,
+        )
+      ) return
 
       coinPositions.push(point)
       system.spawnWorldItem(
@@ -181,8 +154,7 @@ export function installItemCourseEnhancements() {
       spawnCoin(route[index], system.worldScale * 0.016)
     }
 
-    const cornerCandidates = findCornerCandidates(route)
-    for (const corner of cornerCandidates) {
+    for (const corner of findCornerCandidates(route)) {
       const centre = route[corner.index]
       const basis = getCourseBasis(route, corner.index, CORNER_LOOKAHEAD)
       const tightness = Phaser.Math.Clamp(
@@ -192,16 +164,13 @@ export function installItemCourseEnhancements() {
       )
       const rows = Phaser.Math.Clamp(3 + Math.round(tightness * 5), 3, 8)
       const columns = tightness > 0.58 ? 4 : 3
-      const lateralCoinSpacing = system.worldScale * CORNER_COIN_LATERAL_SPACING_RATIO
-      const longitudinalCoinSpacing = system.worldScale * CORNER_COIN_LONGITUDINAL_SPACING_RATIO
-
       const grid = buildCoinGrid(
         centre,
         basis,
         columns,
         rows,
-        lateralCoinSpacing,
-        longitudinalCoinSpacing,
+        system.worldScale * CORNER_COIN_LATERAL_SPACING_RATIO,
+        system.worldScale * CORNER_COIN_LONGITUDINAL_SPACING_RATIO,
       )
 
       for (const point of grid) {
@@ -238,45 +207,209 @@ export function installItemCourseEnhancements() {
       break
     }
   }
+
+  prototype.createCoinPickupVisual = function (
+    this: ItemSystem,
+    worldX: number,
+    worldY: number,
+    camera: CameraState,
+  ) {
+    createHeavyGoldCoinBurst(this as unknown as ItemSystemInternals, worldX, worldY, camera)
+  }
 }
 
-function buildItemBoxGrid(
-  centre: RoutePoint,
-  basis: CourseBasis,
-  lateralSpacing: number,
-  longitudinalSpacing: number,
+function buildTenItemBoxes(
+  route: RoutePoint[],
+  clearance: number,
+  worldScale: number,
+  isRoad: (x: number, y: number) => boolean,
+  isBarrier: (x: number, y: number) => boolean,
 ) {
-  const points: RoutePoint[] = []
-  for (let row = -1; row <= 1; row += 1) {
-    for (let lane = -1; lane <= 1; lane += 1) {
-      points.push({
-        x:
-          centre.x +
-          basis.tangentX * longitudinalSpacing * row +
-          basis.normalX * lateralSpacing * lane,
-        y:
-          centre.y +
-          basis.tangentY * longitudinalSpacing * row +
-          basis.normalY * lateralSpacing * lane,
-      })
+  const boxes: ItemBoxState[] = []
+  const minimumDistance = worldScale * ITEM_BOX_MIN_DISTANCE_RATIO
+
+  for (let slot = 0; slot < ITEM_BOX_COUNT; slot += 1) {
+    const targetIndex = Math.floor((slot / ITEM_BOX_COUNT) * route.length)
+    const candidateOffsets = [0, 3, -3, 6, -6, 9, -9, 12, -12, 16, -16]
+
+    for (const offset of candidateOffsets) {
+      const index = (targetIndex + offset + route.length) % route.length
+      const centre = route[index]
+      const basis = getCourseBasis(route, index, 3)
+      const lateralCandidates = [0, 0.035, -0.035, 0.02, -0.02]
+      let placed = false
+
+      for (const lateralRatio of lateralCandidates) {
+        const point = {
+          x: centre.x + basis.normalX * worldScale * lateralRatio,
+          y: centre.y + basis.normalY * worldScale * lateralRatio,
+        }
+        if (!isSafeRoadPoint(point, clearance, isRoad, isBarrier)) continue
+        if (
+          boxes.some(
+            (box) => distanceSquared(point, box) < minimumDistance * minimumDistance,
+          )
+        ) continue
+
+        boxes.push({
+          id: `course-box-${boxes.length + 1}`,
+          x: point.x,
+          y: point.y,
+          active: true,
+        })
+        placed = true
+        break
+      }
+
+      if (placed) break
     }
   }
-  return points
+
+  return boxes.slice(0, ITEM_BOX_COUNT)
 }
 
-function buildItemBoxColumn(
-  centre: RoutePoint,
-  basis: CourseBasis,
-  longitudinalSpacing: number,
+function createHeavyGoldCoinBurst(
+  system: ItemSystemInternals,
+  worldX: number,
+  worldY: number,
+  camera: CameraState,
 ) {
-  const points: RoutePoint[] = []
-  for (let row = -4; row <= 4; row += 1) {
-    points.push({
-      x: centre.x + basis.tangentX * longitudinalSpacing * row,
-      y: centre.y + basis.tangentY * longitudinalSpacing * row,
+  const projected = system.renderer.projectWorldPoint(worldX, worldY, camera)
+  if (!projected) return
+
+  const scale = Phaser.Math.Clamp(projected.scale, 0.6, 1.7)
+  const originX = projected.x
+  const groundY = projected.y - 4 * scale
+  const depth = 84 + projected.screenY * 0.01
+
+  const flash = system.scene.add
+    .ellipse(originX, groundY, 26 * scale, 9 * scale, 0xffd52a, 0.34)
+    .setStrokeStyle(Math.max(2, 3 * scale), 0xffef8a, 0.95)
+    .setDepth(depth)
+
+  system.scene.tweens.add({
+    targets: flash,
+    scaleX: 4.2,
+    scaleY: 2.5,
+    alpha: 0,
+    duration: 420,
+    ease: 'Quad.easeOut',
+    onComplete: () => flash.destroy(),
+  })
+
+  for (let index = 0; index < 42; index += 1) {
+    const size = Phaser.Math.Between(2, 6) * scale
+    const shard = system.scene.add
+      .rectangle(
+        originX + Phaser.Math.Between(-8, 8) * scale,
+        groundY - Phaser.Math.Between(0, 8) * scale,
+        size,
+        size * Phaser.Math.FloatBetween(0.65, 1.8),
+        index % 5 === 0 ? 0xfff4a3 : index % 2 === 0 ? 0xffd21f : 0xffa000,
+        1,
+      )
+      .setDepth(depth + 2)
+      .setRotation(Phaser.Math.FloatBetween(-Math.PI, Math.PI))
+
+    const horizontal = Phaser.Math.Between(-72, 72) * scale
+    const apexY = groundY - Phaser.Math.Between(38, 105) * scale
+    const landingX = originX + horizontal
+    const landingY = groundY + Phaser.Math.Between(-2, 5) * scale
+
+    system.scene.tweens.add({
+      targets: shard,
+      x: originX + horizontal * 0.58,
+      y: apexY,
+      angle: Phaser.Math.Between(-220, 220),
+      duration: Phaser.Math.Between(150, 240),
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        system.scene.tweens.add({
+          targets: shard,
+          x: landingX,
+          y: landingY,
+          angle: shard.angle + Phaser.Math.Between(-180, 180),
+          duration: Phaser.Math.Between(150, 230),
+          ease: 'Quad.easeIn',
+          onComplete: () => {
+            const bounceHeight = Phaser.Math.Between(8, 25) * scale
+            system.scene.tweens.add({
+              targets: shard,
+              x: landingX + horizontal * 0.12,
+              y: landingY - bounceHeight,
+              duration: Phaser.Math.Between(80, 130),
+              ease: 'Quad.easeOut',
+              yoyo: true,
+              onComplete: () => {
+                system.scene.tweens.add({
+                  targets: shard,
+                  x: shard.x + Phaser.Math.Between(-20, 20) * scale,
+                  y: landingY + Phaser.Math.Between(1, 6) * scale,
+                  angle: shard.angle + Phaser.Math.Between(-100, 100),
+                  alpha: 0,
+                  scaleX: 0.35,
+                  scaleY: 0.35,
+                  duration: Phaser.Math.Between(220, 420),
+                  ease: 'Cubic.easeOut',
+                  onComplete: () => shard.destroy(),
+                })
+              },
+            })
+          },
+        })
+      },
     })
   }
-  return points
+
+  for (let index = 0; index < 18; index += 1) {
+    const spark = system.scene.add
+      .circle(
+        originX + Phaser.Math.Between(-6, 6) * scale,
+        groundY,
+        Phaser.Math.FloatBetween(1.2, 3.3) * scale,
+        index % 3 === 0 ? 0xffffff : 0xffe34d,
+        1,
+      )
+      .setDepth(depth + 3)
+
+    const angle = Phaser.Math.FloatBetween(Math.PI, Math.PI * 2)
+    const distance = Phaser.Math.Between(28, 90) * scale
+    system.scene.tweens.add({
+      targets: spark,
+      x: originX + Math.cos(angle) * distance,
+      y: groundY + Math.sin(angle) * distance * 0.72,
+      alpha: 0,
+      scale: 0.15,
+      duration: Phaser.Math.Between(240, 460),
+      ease: 'Quad.easeOut',
+      onComplete: () => spark.destroy(),
+    })
+  }
+
+  for (let index = 0; index < 12; index += 1) {
+    const dust = system.scene.add
+      .ellipse(
+        originX + Phaser.Math.Between(-12, 12) * scale,
+        groundY + Phaser.Math.Between(0, 5) * scale,
+        Phaser.Math.Between(5, 11) * scale,
+        Phaser.Math.Between(2, 5) * scale,
+        0xc8922f,
+        0.42,
+      )
+      .setDepth(depth - 1)
+
+    system.scene.tweens.add({
+      targets: dust,
+      x: dust.x + Phaser.Math.Between(-35, 35) * scale,
+      y: dust.y + Phaser.Math.Between(-3, 8) * scale,
+      scaleX: Phaser.Math.FloatBetween(1.8, 3.2),
+      scaleY: Phaser.Math.FloatBetween(1.1, 1.8),
+      alpha: 0,
+      duration: Phaser.Math.Between(420, 720),
+      ease: 'Sine.easeOut',
+      onComplete: () => dust.destroy(),
+    })
+  }
 }
 
 function buildCoinGrid(
