@@ -5,27 +5,60 @@ import {
   type Mode7GroundSprite,
 } from '../rendering/Mode7Renderer'
 
-export type ItemType = 'banana'
+export type ItemType =
+  | 'banana'
+  | 'bomb'
+  | 'coin'
+  | 'egg'
+  | 'fireball'
+  | 'greenShell'
+  | 'redShell'
+  | 'mushroom'
+  | 'star'
 
-type ItemBox = {
+export type ItemRacerState = {
   id: string
   x: number
   y: number
-  active: boolean
+  angle: number
+  speedRatio: number
+  invulnerable: boolean
 }
 
-type RouletteFrame = {
-  name: string
+export type ItemSystemHooks = {
+  ownerId: string
+  getRacers: () => readonly ItemRacerState[]
+  spinOutRacer: (
+    racerId: string,
+    blastX: number,
+    blastY: number,
+    pushStrength: number,
+    controlLockSeconds: number,
+  ) => void
+  boostRacer: (racerId: string, multiplier: number, durationSeconds: number) => void
+  grantStar: (racerId: string, durationSeconds: number) => void
+  addCoin: (racerId: string, amount: number) => void
+  isBarrierAt: (x: number, y: number) => boolean
+}
+
+type ItemBox = { id: string; x: number; y: number; active: boolean }
+type RouletteFrame = { name: string; x: number; y: number }
+type WorldItem = {
+  id: number
+  kind: 'banana' | 'bomb' | 'greenShell' | 'redShell' | 'fireball' | 'egg'
+  ownerId: string
   x: number
   y: number
+  vx: number
+  vy: number
+  ttl: number
+  ownerGrace: number
+  fuse?: number
+  image: Phaser.GameObjects.Image
 }
 
 const PICKUP_RADIUS_RATIO = 0.035
 const ITEM_BOX_RESPAWN_MS = 5000
-
-// Runtime-generated frames let us animate much more smoothly than the original
-// partial tiles. 50ms = ~20fps, which is smooth while keeping the Mode 7
-// overlay refresh comfortably below the main render loop rate.
 const PANEL_FRAME_MS = 50
 const PANEL_TEXTURE_KEY = 'item-panels-mode7'
 const PANEL_SIZE = 32
@@ -33,11 +66,6 @@ const ACTIVE_PANEL_FRAMES = 24
 const EMPTY_PANEL_FRAME = ACTIVE_PANEL_FRAMES
 const PANEL_FRAME_COUNT = ACTIVE_PANEL_FRAMES + 1
 const PANEL_WORLD_SCALE = 1.05
-
-// Item Roulette.png contains complete 26x18 boxed power-up sprites. The cells
-// have a one-pixel gutter between them, so the crop size stays 26x18 while the
-// source-grid stride is 27x19. Using the crop width itself as the stride caused
-// each icon after the first to drift progressively out of alignment.
 const ROULETTE_FRAME_WIDTH = 26
 const ROULETTE_FRAME_HEIGHT = 18
 const ROULETTE_START_X = 0
@@ -51,24 +79,28 @@ const ROULETTE_DURATION_MS = 1250
 const ROULETTE_STEP_MS = 75
 const ROULETTE_FRAME_PREFIX = 'roulette-item-'
 
+const ITEM_TEXTURES: Partial<Record<ItemType, string>> = {
+  banana: 'item-banana', bomb: 'item-bomb', coin: 'item-coin', egg: 'item-egg',
+  fireball: 'item-fireball', greenShell: 'item-green-shell', redShell: 'item-red-shell',
+}
+const ITEM_LABELS: Record<ItemType, string> = {
+  banana: 'BANANA', bomb: 'BOMB', coin: 'COIN', egg: 'EGG', fireball: 'FIREBALL',
+  greenShell: 'GREEN SHELL', redShell: 'RED SHELL', mushroom: 'MUSHROOM', star: 'STAR',
+}
+const ITEM_POOL: ItemType[] = [
+  'banana', 'banana', 'greenShell', 'greenShell', 'redShell', 'mushroom', 'mushroom',
+  'coin', 'coin', 'fireball', 'egg', 'bomb', 'star',
+]
 const ROULETTE_FRAMES: RouletteFrame[] = Array.from(
   { length: ROULETTE_COLUMNS * ROULETTE_ROWS },
   (_, index) => ({
     name: `${ROULETTE_FRAME_PREFIX}${index}`,
-    x:
-      ROULETTE_START_X +
-      (index % ROULETTE_COLUMNS) * ROULETTE_COLUMN_STRIDE,
-    y:
-      ROULETTE_START_Y +
-      Math.floor(index / ROULETTE_COLUMNS) * ROULETTE_ROW_STRIDE,
+    x: ROULETTE_START_X + (index % ROULETTE_COLUMNS) * ROULETTE_COLUMN_STRIDE,
+    y: ROULETTE_START_Y + Math.floor(index / ROULETTE_COLUMNS) * ROULETTE_ROW_STRIDE,
   }),
 )
-
-// The sheet follows roulette order, beginning with Star and then Banana.
-const BANANA_ROULETTE_FRAME = 1
-
-// Spread the row further apart so each panel keeps a visible strip of tarmac
-// between it and its neighbours once projected through Mode 7.
+const STAR_ROULETTE_FRAME = 0
+const MUSHROOM_ROULETTE_FRAME = 2
 const MARIO_CIRCUIT_ITEM_BOXES = [
   { id: 'mc1-1', xRatio: 0.83, yRatio: 0.5 },
   { id: 'mc1-2', xRatio: 0.87, yRatio: 0.5 },
@@ -77,19 +109,42 @@ const MARIO_CIRCUIT_ITEM_BOXES = [
   { id: 'mc1-5', xRatio: 0.99, yRatio: 0.5 },
 ] as const
 
+const WORLD_ITEM_SIZE = 34
+const WORLD_ITEM_HIT_RADIUS_RATIO = 0.025
+const BANANA_DROP_DISTANCE_RATIO = 0.065
+const PROJECTILE_START_DISTANCE_RATIO = 0.055
+const SHELL_SPEED_RATIO = 0.62
+const FIREBALL_SPEED_RATIO = 0.68
+const EGG_SPEED_RATIO = 0.56
+const BOMB_THROW_SPEED_RATIO = 0.24
+const BOMB_FUSE_SECONDS = 1.05
+const BOMB_BLAST_RADIUS_RATIO = 0.145
+const BOMB_PUSH_STRENGTH_RATIO = 0.22
+const BOMB_CONTROL_LOCK_SECONDS = 1.05
+const PROJECTILE_CONTROL_LOCK_SECONDS = 0.72
+const PROJECTILE_PUSH_RATIO = 0.105
+const STAR_DURATION_SECONDS = 6
+const MUSHROOM_DURATION_SECONDS = 0.9
+const MUSHROOM_MULTIPLIER = 1.55
+
 export class ItemSystem {
   private readonly scene: Phaser.Scene
   private readonly renderer: Mode7Renderer
+  private readonly worldScale: number
+  private readonly rouletteTextureKey: string
+  private readonly hooks: ItemSystemHooks
   private readonly itemBoxes: ItemBox[]
   private readonly pickupRadius: number
+  private readonly worldItemHitRadius: number
+  private readonly worldItems: WorldItem[] = []
   private heldItem?: ItemType
   private rouletteRunning = false
   private rouletteFrameIndex = 0
   private panelFrame = 0
+  private nextWorldItemId = 1
   private panelTimer?: Phaser.Time.TimerEvent
   private rouletteTimer?: Phaser.Time.TimerEvent
   private rouletteFinishTimer?: Phaser.Time.TimerEvent
-
   private readonly rouletteSprite: Phaser.GameObjects.Image
   private readonly heldText: Phaser.GameObjects.Text
 
@@ -98,13 +153,17 @@ export class ItemSystem {
     renderer: Mode7Renderer,
     worldScale: number,
     rouletteTextureKey: string,
+    hooks: ItemSystemHooks,
   ) {
     this.scene = scene
     this.renderer = renderer
+    this.worldScale = worldScale
+    this.rouletteTextureKey = rouletteTextureKey
+    this.hooks = hooks
     this.pickupRadius = worldScale * PICKUP_RADIUS_RATIO
+    this.worldItemHitRadius = worldScale * WORLD_ITEM_HIT_RADIUS_RATIO
     this.createPanelTexture()
     this.registerRouletteFrames(rouletteTextureKey)
-
     this.itemBoxes = MARIO_CIRCUIT_ITEM_BOXES.map((definition) => ({
       id: definition.id,
       x: renderer.sourceWidth * definition.xRatio,
@@ -113,22 +172,16 @@ export class ItemSystem {
     }))
 
     this.rouletteSprite = scene.add
-      .image(90, 124, rouletteTextureKey, ROULETTE_FRAMES[BANANA_ROULETTE_FRAME].name)
+      .image(90, 124, rouletteTextureKey, ROULETTE_FRAMES[0].name)
       .setDepth(41)
       .setOrigin(0.5)
       .setScale(ROULETTE_ICON_SCALE)
       .setVisible(false)
 
-    this.heldText = scene.add
-      .text(90, 158, '', {
-        fontFamily: 'monospace',
-        fontSize: '13px',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5, 0)
-      .setDepth(42)
+    this.heldText = scene.add.text(90, 158, '', {
+      fontFamily: 'monospace', fontSize: '13px', color: '#ffffff',
+      stroke: '#000000', strokeThickness: 3, align: 'center',
+    }).setOrigin(0.5, 0).setDepth(42)
 
     this.panelTimer = scene.time.addEvent({
       delay: PANEL_FRAME_MS,
@@ -138,23 +191,12 @@ export class ItemSystem {
         this.refreshGroundPanels()
       },
     })
-
     this.refreshGroundPanels()
   }
 
-  update(playerX: number, playerY: number, _camera: Mode7CameraState) {
-    if (this.heldItem || this.rouletteRunning) return
-
-    const pickupRadiusSq = this.pickupRadius * this.pickupRadius
-    for (const itemBox of this.itemBoxes) {
-      if (!itemBox.active) continue
-      const dx = playerX - itemBox.x
-      const dy = playerY - itemBox.y
-      if (dx * dx + dy * dy <= pickupRadiusSq) {
-        this.collect(itemBox)
-        break
-      }
-    }
+  update(deltaSeconds: number, camera: Mode7CameraState) {
+    this.checkItemBoxPickup()
+    this.updateWorldItems(deltaSeconds, camera)
   }
 
   useHeldItem() {
@@ -162,12 +204,11 @@ export class ItemSystem {
     const item = this.heldItem
     this.heldItem = undefined
     this.updateHeldHud()
+    this.activateItem(item)
     return item
   }
 
-  get currentItem() {
-    return this.heldItem
-  }
+  get currentItem() { return this.heldItem }
 
   destroy() {
     this.panelTimer?.destroy()
@@ -176,8 +217,24 @@ export class ItemSystem {
     this.renderer.setGroundSprites(PANEL_TEXTURE_KEY, [])
     this.rouletteSprite.destroy()
     this.heldText.destroy()
-    if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) {
-      this.scene.textures.remove(PANEL_TEXTURE_KEY)
+    for (const item of this.worldItems) item.image.destroy()
+    this.worldItems.length = 0
+    if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) this.scene.textures.remove(PANEL_TEXTURE_KEY)
+  }
+
+  private checkItemBoxPickup() {
+    if (this.heldItem || this.rouletteRunning) return
+    const owner = this.hooks.getRacers().find((racer) => racer.id === this.hooks.ownerId)
+    if (!owner) return
+    const pickupRadiusSq = this.pickupRadius * this.pickupRadius
+    for (const itemBox of this.itemBoxes) {
+      if (!itemBox.active) continue
+      const dx = owner.x - itemBox.x
+      const dy = owner.y - itemBox.y
+      if (dx * dx + dy * dy <= pickupRadiusSq) {
+        this.collect(itemBox)
+        break
+      }
     }
   }
 
@@ -185,7 +242,6 @@ export class ItemSystem {
     itemBox.active = false
     this.refreshGroundPanels()
     this.startRoulette()
-
     this.scene.time.delayedCall(ITEM_BOX_RESPAWN_MS, () => {
       itemBox.active = true
       this.refreshGroundPanels()
@@ -195,8 +251,11 @@ export class ItemSystem {
   private startRoulette() {
     this.rouletteRunning = true
     this.rouletteFrameIndex = 0
-    this.rouletteSprite.setVisible(true)
-    this.applyRouletteFrame(this.rouletteFrameIndex)
+    this.rouletteSprite
+      .setTexture(this.rouletteTextureKey, ROULETTE_FRAMES[0].name)
+      .setScale(ROULETTE_ICON_SCALE)
+      .setVisible(true)
+    this.applyRouletteFrame(0)
     this.heldText.setText('ROULETTE')
 
     this.rouletteTimer?.destroy()
@@ -204,82 +263,306 @@ export class ItemSystem {
       delay: ROULETTE_STEP_MS,
       loop: true,
       callback: () => {
-        this.rouletteFrameIndex =
-          (this.rouletteFrameIndex + 1) % ROULETTE_FRAMES.length
+        this.rouletteFrameIndex = (this.rouletteFrameIndex + 1) % ROULETTE_FRAMES.length
         this.applyRouletteFrame(this.rouletteFrameIndex)
       },
     })
 
     this.rouletteFinishTimer?.destroy()
-    this.rouletteFinishTimer = this.scene.time.delayedCall(
-      ROULETTE_DURATION_MS,
-      () => {
-        this.rouletteTimer?.destroy()
-        this.rouletteTimer = undefined
-        this.rouletteRunning = false
-        this.heldItem = 'banana'
-        this.applyRouletteFrame(BANANA_ROULETTE_FRAME)
-        this.updateHeldHud()
-      },
+    this.rouletteFinishTimer = this.scene.time.delayedCall(ROULETTE_DURATION_MS, () => {
+      this.rouletteTimer?.destroy()
+      this.rouletteTimer = undefined
+      this.rouletteRunning = false
+      this.heldItem = ITEM_POOL[Math.floor(Math.random() * ITEM_POOL.length)]
+      this.updateHeldHud()
+    })
+  }
+
+  private activateItem(item: ItemType) {
+    const owner = this.hooks.getRacers().find((racer) => racer.id === this.hooks.ownerId)
+    if (!owner) return
+    switch (item) {
+      case 'banana': this.spawnBanana(owner); break
+      case 'greenShell': this.spawnProjectile('greenShell', owner, SHELL_SPEED_RATIO); break
+      case 'redShell': this.spawnProjectile('redShell', owner, SHELL_SPEED_RATIO * 0.93); break
+      case 'fireball': this.spawnProjectile('fireball', owner, FIREBALL_SPEED_RATIO); break
+      case 'egg': this.spawnProjectile('egg', owner, EGG_SPEED_RATIO); break
+      case 'bomb': this.spawnBomb(owner); break
+      case 'mushroom': this.hooks.boostRacer(owner.id, MUSHROOM_MULTIPLIER, MUSHROOM_DURATION_SECONDS); break
+      case 'star': this.hooks.grantStar(owner.id, STAR_DURATION_SECONDS); break
+      case 'coin': this.hooks.addCoin(owner.id, 2); break
+    }
+  }
+
+  private spawnBanana(owner: ItemRacerState) {
+    const distance = this.worldScale * BANANA_DROP_DISTANCE_RATIO
+    this.spawnWorldItem(
+      'banana', owner.id,
+      owner.x - Math.sin(owner.angle) * distance,
+      owner.y + Math.cos(owner.angle) * distance,
+      0, 0, 14, 0.8,
     )
+  }
+
+  private spawnProjectile(
+    kind: 'greenShell' | 'redShell' | 'fireball' | 'egg',
+    owner: ItemRacerState,
+    speedRatio: number,
+  ) {
+    const startDistance = this.worldScale * PROJECTILE_START_DISTANCE_RATIO
+    const speed = this.worldScale * speedRatio
+    const forwardX = Math.sin(owner.angle)
+    const forwardY = -Math.cos(owner.angle)
+    const ttl = kind === 'fireball' ? 4 : kind === 'egg' ? 5 : 7
+    this.spawnWorldItem(
+      kind, owner.id,
+      owner.x + forwardX * startDistance,
+      owner.y + forwardY * startDistance,
+      forwardX * speed, forwardY * speed, ttl, 0.45,
+    )
+  }
+
+  private spawnBomb(owner: ItemRacerState) {
+    const startDistance = this.worldScale * PROJECTILE_START_DISTANCE_RATIO
+    const throwSpeed = this.worldScale * BOMB_THROW_SPEED_RATIO
+    const forwardX = Math.sin(owner.angle)
+    const forwardY = -Math.cos(owner.angle)
+    const item = this.spawnWorldItem(
+      'bomb', owner.id,
+      owner.x + forwardX * startDistance,
+      owner.y + forwardY * startDistance,
+      forwardX * throwSpeed, forwardY * throwSpeed,
+      BOMB_FUSE_SECONDS + 0.1, 0.25,
+    )
+    item.fuse = BOMB_FUSE_SECONDS
+  }
+
+  private spawnWorldItem(
+    kind: WorldItem['kind'], ownerId: string, x: number, y: number,
+    vx: number, vy: number, ttl: number, ownerGrace: number,
+  ) {
+    const textureKey = ITEM_TEXTURES[kind]
+    if (!textureKey) throw new Error(`Missing world item texture for ${kind}`)
+    const image = this.scene.add.image(-1000, -1000, textureKey)
+      .setDepth(12).setOrigin(0.5).setVisible(false)
+    const item: WorldItem = {
+      id: this.nextWorldItemId++, kind, ownerId, x, y, vx, vy, ttl, ownerGrace, image,
+    }
+    this.worldItems.push(item)
+    return item
+  }
+
+  private updateWorldItems(deltaSeconds: number, camera: Mode7CameraState) {
+    for (let index = this.worldItems.length - 1; index >= 0; index -= 1) {
+      const item = this.worldItems[index]
+      item.ttl -= deltaSeconds
+      item.ownerGrace = Math.max(0, item.ownerGrace - deltaSeconds)
+
+      if (item.kind === 'bomb') {
+        item.fuse = Math.max(0, (item.fuse ?? 0) - deltaSeconds)
+        item.x += item.vx * deltaSeconds
+        item.y += item.vy * deltaSeconds
+        item.vx *= Math.pow(0.06, deltaSeconds)
+        item.vy *= Math.pow(0.06, deltaSeconds)
+        if ((item.fuse ?? 0) <= 0) {
+          this.detonateBomb(item, camera)
+          this.removeWorldItem(index)
+          continue
+        }
+      } else if (item.kind !== 'banana') {
+        this.updateProjectile(item, deltaSeconds)
+      }
+
+      if (item.ttl <= 0) {
+        this.removeWorldItem(index)
+        continue
+      }
+      if (this.checkWorldItemHits(item)) {
+        this.removeWorldItem(index)
+        continue
+      }
+      this.updateWorldItemVisual(item, camera)
+    }
+  }
+
+  private updateProjectile(item: WorldItem, deltaSeconds: number) {
+    if (item.kind === 'redShell') this.homeRedShell(item, deltaSeconds)
+    const nextX = item.x + item.vx * deltaSeconds
+    const nextY = item.y + item.vy * deltaSeconds
+    if (this.hooks.isBarrierAt(nextX, nextY)) {
+      if (item.kind === 'greenShell') {
+        const hitX = this.hooks.isBarrierAt(nextX, item.y)
+        const hitY = this.hooks.isBarrierAt(item.x, nextY)
+        if (hitX || (!hitX && !hitY)) item.vx *= -1
+        if (hitY || (!hitX && !hitY)) item.vy *= -1
+        item.x += item.vx * deltaSeconds
+        item.y += item.vy * deltaSeconds
+      } else {
+        item.ttl = 0
+      }
+      return
+    }
+    item.x = nextX
+    item.y = nextY
+  }
+
+  private homeRedShell(item: WorldItem, deltaSeconds: number) {
+    const targets = this.hooks.getRacers()
+      .filter((racer) => racer.id !== item.ownerId)
+      .sort((a, b) => {
+        const adx = a.x - item.x
+        const ady = a.y - item.y
+        const bdx = b.x - item.x
+        const bdy = b.y - item.y
+        return adx * adx + ady * ady - (bdx * bdx + bdy * bdy)
+      })
+    const target = targets[0]
+    if (!target) return
+    const speed = Math.hypot(item.vx, item.vy)
+    const dx = target.x - item.x
+    const dy = target.y - item.y
+    const length = Math.max(0.001, Math.hypot(dx, dy))
+    const desiredVx = (dx / length) * speed
+    const desiredVy = (dy / length) * speed
+    const follow = Math.min(1, deltaSeconds * 3.8)
+    item.vx = Phaser.Math.Linear(item.vx, desiredVx, follow)
+    item.vy = Phaser.Math.Linear(item.vy, desiredVy, follow)
+  }
+
+  private checkWorldItemHits(item: WorldItem) {
+    const hitRadiusSq = this.worldItemHitRadius * this.worldItemHitRadius
+    for (const racer of this.hooks.getRacers()) {
+      if (racer.id === item.ownerId && item.ownerGrace > 0) continue
+      const dx = racer.x - item.x
+      const dy = racer.y - item.y
+      if (dx * dx + dy * dy > hitRadiusSq) continue
+      if (racer.invulnerable) return true
+      this.hooks.spinOutRacer(
+        racer.id, item.x, item.y,
+        this.worldScale * PROJECTILE_PUSH_RATIO,
+        item.kind === 'banana' ? 0.95 : PROJECTILE_CONTROL_LOCK_SECONDS,
+      )
+      return true
+    }
+    return false
+  }
+
+  private detonateBomb(item: WorldItem, camera: Mode7CameraState) {
+    const radius = this.worldScale * BOMB_BLAST_RADIUS_RATIO
+    const radiusSq = radius * radius
+    const pushStrength = this.worldScale * BOMB_PUSH_STRENGTH_RATIO
+    for (const racer of this.hooks.getRacers()) {
+      const dx = racer.x - item.x
+      const dy = racer.y - item.y
+      if (dx * dx + dy * dy > radiusSq || racer.invulnerable) continue
+      this.hooks.spinOutRacer(
+        racer.id, item.x, item.y, pushStrength, BOMB_CONTROL_LOCK_SECONDS,
+      )
+    }
+    this.createExplosionVisual(item.x, item.y, camera)
+  }
+
+  private createExplosionVisual(worldX: number, worldY: number, camera: Mode7CameraState) {
+    const projected = this.renderer.projectWorldPoint(worldX, worldY, camera)
+    if (!projected) return
+    const baseRadius = Phaser.Math.Clamp(26 * projected.scale, 20, 44)
+    const shockwave = this.scene.add.circle(projected.x, projected.y, baseRadius, 0xffa21a, 0.2)
+      .setStrokeStyle(5, 0xfff2b0, 0.95)
+      .setDepth(80)
+    this.scene.tweens.add({
+      targets: shockwave, scale: 3.3, alpha: 0, duration: 420, ease: 'Quad.easeOut',
+      onComplete: () => shockwave.destroy(),
+    })
+
+    for (let index = 0; index < 18; index += 1) {
+      const angle = (index / 18) * Math.PI * 2 + Phaser.Math.FloatBetween(-0.12, 0.12)
+      const distance = Phaser.Math.Between(34, 82)
+      const particle = this.scene.add.circle(
+        projected.x,
+        projected.y,
+        Phaser.Math.Between(3, 7),
+        index % 3 === 0 ? 0xfff2a8 : index % 2 === 0 ? 0xff7b19 : 0x3b2a1f,
+        1,
+      ).setDepth(81)
+      this.scene.tweens.add({
+        targets: particle,
+        x: projected.x + Math.cos(angle) * distance,
+        y: projected.y + Math.sin(angle) * distance * 0.62,
+        scale: 0.15,
+        alpha: 0,
+        duration: Phaser.Math.Between(280, 520),
+        ease: 'Quad.easeOut',
+        onComplete: () => particle.destroy(),
+      })
+    }
+  }
+
+  private updateWorldItemVisual(item: WorldItem, camera: Mode7CameraState) {
+    const projected = this.renderer.projectWorldPoint(item.x, item.y, camera)
+    if (!projected) {
+      item.image.setVisible(false)
+      return
+    }
+    const scale = Phaser.Math.Clamp(projected.scale, 0.42, 1.75)
+    const bob = item.kind === 'banana' ? 0 : Math.sin(this.scene.time.now * 0.01 + item.id) * 3
+    item.image
+      .setVisible(true)
+      .setPosition(projected.x, projected.y - 7 * scale + bob)
+      .setDisplaySize(WORLD_ITEM_SIZE * scale, WORLD_ITEM_SIZE * scale)
+      .setDepth(12 + projected.screenY * 0.01)
+      .setRotation(item.kind === 'fireball' ? this.scene.time.now * 0.012 : 0)
+  }
+
+  private removeWorldItem(index: number) {
+    const [item] = this.worldItems.splice(index, 1)
+    item?.image.destroy()
   }
 
   private registerRouletteFrames(textureKey: string) {
     const texture = this.scene.textures.get(textureKey)
-
     for (const frame of ROULETTE_FRAMES) {
       if (texture.has(frame.name)) continue
-      texture.add(
-        frame.name,
-        0,
-        frame.x,
-        frame.y,
-        ROULETTE_FRAME_WIDTH,
-        ROULETTE_FRAME_HEIGHT,
-      )
+      texture.add(frame.name, 0, frame.x, frame.y, ROULETTE_FRAME_WIDTH, ROULETTE_FRAME_HEIGHT)
     }
   }
 
   private applyRouletteFrame(index: number) {
     const frame = ROULETTE_FRAMES[index]
-    if (!frame) return
-    this.rouletteSprite.setFrame(frame.name)
+    if (frame) this.rouletteSprite.setTexture(this.rouletteTextureKey, frame.name)
   }
 
   private updateHeldHud() {
-    if (this.heldItem) {
-      this.rouletteSprite.setVisible(true)
-      this.applyRouletteFrame(BANANA_ROULETTE_FRAME)
-      this.heldText.setText('BANANA  [SPACE]')
-    } else {
+    if (!this.heldItem) {
       this.rouletteSprite.setVisible(false)
       this.heldText.setText('')
+      return
     }
+    const textureKey = ITEM_TEXTURES[this.heldItem]
+    this.rouletteSprite.setVisible(true)
+    if (textureKey) {
+      this.rouletteSprite.setTexture(textureKey).setScale(1).setDisplaySize(58, 58)
+    } else {
+      const frameIndex = this.heldItem === 'star' ? STAR_ROULETTE_FRAME : MUSHROOM_ROULETTE_FRAME
+      this.rouletteSprite
+        .setTexture(this.rouletteTextureKey, ROULETTE_FRAMES[frameIndex].name)
+        .setScale(ROULETTE_ICON_SCALE)
+    }
+    this.heldText.setText(`${ITEM_LABELS[this.heldItem]}  [SPACE]`)
   }
 
   private createPanelTexture() {
     if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) return
-
     const texture = this.scene.textures.createCanvas(
-      PANEL_TEXTURE_KEY,
-      PANEL_SIZE * PANEL_FRAME_COUNT,
-      PANEL_SIZE,
+      PANEL_TEXTURE_KEY, PANEL_SIZE * PANEL_FRAME_COUNT, PANEL_SIZE,
     )
     if (!texture) return
-
     const context = texture.context
     context.imageSmoothingEnabled = false
 
-    // Draw two identical question marks one panel-width apart. As one exits
-    // through the right edge, the next is already entering from the left, so
-    // the active tile never sits blank between animation cycles.
     for (let frame = 0; frame < ACTIVE_PANEL_FRAMES; frame += 1) {
       const frameX = frame * PANEL_SIZE
       this.drawPanelBase(context, frameX, true)
-
-      const progress = frame / ACTIVE_PANEL_FRAMES
-      const glyphX = Math.floor(progress * PANEL_SIZE)
-
+      const glyphX = Math.floor((frame / ACTIVE_PANEL_FRAMES) * PANEL_SIZE)
       context.save()
       context.beginPath()
       context.rect(frameX, 0, PANEL_SIZE, PANEL_SIZE)
@@ -288,68 +571,34 @@ export class ItemSystem {
       this.drawQuestionMark(context, frameX + glyphX - PANEL_SIZE, 5)
       context.restore()
     }
-
-    this.drawPanelBase(
-      context,
-      EMPTY_PANEL_FRAME * PANEL_SIZE,
-      false,
-    )
-    this.drawSadFace(
-      context,
-      EMPTY_PANEL_FRAME * PANEL_SIZE,
-      0,
-    )
-
+    this.drawPanelBase(context, EMPTY_PANEL_FRAME * PANEL_SIZE, false)
+    this.drawSadFace(context, EMPTY_PANEL_FRAME * PANEL_SIZE, 0)
     texture.refresh()
   }
 
-  private drawPanelBase(
-    context: CanvasRenderingContext2D,
-    x: number,
-    active: boolean,
-  ) {
+  private drawPanelBase(context: CanvasRenderingContext2D, x: number, active: boolean) {
     context.fillStyle = active ? '#ffc000' : '#d90000'
     context.fillRect(x, 0, PANEL_SIZE, PANEL_SIZE)
-
     context.fillStyle = active ? '#ffffff' : '#ff9300'
     context.fillRect(x, 0, PANEL_SIZE - 2, 2)
     context.fillRect(x, 0, 2, PANEL_SIZE - 2)
-
     context.fillStyle = active ? '#9d1400' : '#690000'
     context.fillRect(x, PANEL_SIZE - 2, PANEL_SIZE, 2)
     context.fillRect(x + PANEL_SIZE - 2, 0, 2, PANEL_SIZE)
   }
 
-  private drawQuestionMark(
-    context: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-  ) {
+  private drawQuestionMark(context: CanvasRenderingContext2D, x: number, y: number) {
     context.fillStyle = '#050505'
-
     const block = 3
     const pixels = [
-      [1, 0], [2, 0], [3, 0], [4, 0],
-      [0, 1], [4, 1],
-      [3, 2], [4, 2],
-      [2, 3], [3, 3],
-      [2, 4],
-      [2, 6],
+      [1, 0], [2, 0], [3, 0], [4, 0], [0, 1], [4, 1], [3, 2], [4, 2],
+      [2, 3], [3, 3], [2, 4], [2, 6],
     ] as const
-
-    for (const [px, py] of pixels) {
-      context.fillRect(x + px * block, y + py * block, block, block)
-    }
+    for (const [px, py] of pixels) context.fillRect(x + px * block, y + py * block, block, block)
   }
 
-  private drawSadFace(
-    context: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-  ) {
+  private drawSadFace(context: CanvasRenderingContext2D, x: number, y: number) {
     context.fillStyle = '#4b0000'
-
-    // Chunky pixel-art :( face for a depleted item panel.
     context.fillRect(x + 8, y + 9, 4, 5)
     context.fillRect(x + 20, y + 9, 4, 5)
     context.fillRect(x + 10, y + 21, 3, 3)
@@ -358,22 +607,15 @@ export class ItemSystem {
   }
 
   private refreshGroundPanels() {
-    const sprites: Mode7GroundSprite[] = this.itemBoxes.map((itemBox) => {
-      const frame = itemBox.active
-        ? this.panelFrame
-        : EMPTY_PANEL_FRAME
-
-      return {
-        x: itemBox.x,
-        y: itemBox.y,
-        frameX: frame * PANEL_SIZE,
-        frameY: 0,
-        frameWidth: PANEL_SIZE,
-        frameHeight: PANEL_SIZE,
-        worldScale: PANEL_WORLD_SCALE,
-      }
-    })
-
+    const sprites: Mode7GroundSprite[] = this.itemBoxes.map((itemBox) => ({
+      x: itemBox.x,
+      y: itemBox.y,
+      frameX: (itemBox.active ? this.panelFrame : EMPTY_PANEL_FRAME) * PANEL_SIZE,
+      frameY: 0,
+      frameWidth: PANEL_SIZE,
+      frameHeight: PANEL_SIZE,
+      worldScale: PANEL_WORLD_SCALE,
+    }))
     this.renderer.setGroundSprites(PANEL_TEXTURE_KEY, sprites)
   }
 }
