@@ -3,11 +3,17 @@ import { ItemSystem } from './ItemSystem'
 
 const TRACK_TEXTURE_KEY = 'prototype-track'
 const ROUTE_SAMPLE_COUNT = 320
-const COIN_SAMPLE_STEP = 4
-const ITEM_BOX_ROW_STEP = 28
+const COIN_SAMPLE_STEP = 6
+const ITEM_BOX_CLUSTER_STEP = 72
 const ITEM_BOX_RESPAWN_MS = 5000
 const ITEM_BOX_LATERAL_SPACING_RATIO = 0.047
-const ITEM_BOX_ROW_MIN_DISTANCE_RATIO = 0.105
+const ITEM_BOX_LONGITUDINAL_SPACING_RATIO = 0.048
+const ITEM_BOX_CLUSTER_MIN_DISTANCE_RATIO = 0.18
+const CORNER_LOOKAHEAD = 5
+const CORNER_MIN_ANGLE = 0.055
+const CORNER_MIN_INDEX_DISTANCE = 24
+const CORNER_COIN_LATERAL_SPACING_RATIO = 0.038
+const CORNER_COIN_LONGITUDINAL_SPACING_RATIO = 0.036
 
 const COURSE_ROUTE = [
   { x: 0.91, y: 0.61 },
@@ -63,6 +69,18 @@ type ItemSystemInternals = {
   retroKartLastCamera?: CameraState
 }
 
+type CourseBasis = {
+  tangentX: number
+  tangentY: number
+  normalX: number
+  normalY: number
+}
+
+type CornerCandidate = {
+  index: number
+  angle: number
+}
+
 let installed = false
 
 export function installItemCourseEnhancements() {
@@ -92,68 +110,56 @@ export function installItemCourseEnhancements() {
     const route = buildCourseRoute(system.renderer.sourceWidth, system.renderer.sourceHeight)
     const clearance = Math.max(6, system.worldScale * 0.007)
     const lateralSpacing = system.worldScale * ITEM_BOX_LATERAL_SPACING_RATIO
-    const minimumRowDistance = system.worldScale * ITEM_BOX_ROW_MIN_DISTANCE_RATIO
+    const longitudinalSpacing = system.worldScale * ITEM_BOX_LONGITUDINAL_SPACING_RATIO
+    const minimumClusterDistance = system.worldScale * ITEM_BOX_CLUSTER_MIN_DISTANCE_RATIO
 
     const itemBoxes: ItemBoxState[] = []
-    const rowCentres: RoutePoint[] = []
+    const clusterCentres: RoutePoint[] = []
 
-    for (let index = 0; index < route.length; index += ITEM_BOX_ROW_STEP) {
+    for (let index = 0; index < route.length; index += ITEM_BOX_CLUSTER_STEP) {
       const centre = route[index]
-      const previous = route[(index - 2 + route.length) % route.length]
-      const next = route[(index + 2) % route.length]
-      const tangentX = next.x - previous.x
-      const tangentY = next.y - previous.y
-      const tangentLength = Math.max(0.001, Math.hypot(tangentX, tangentY))
-      const normalX = -tangentY / tangentLength
-      const normalY = tangentX / tangentLength
-
-      const row = [-1, 0, 1].map((lane) => ({
-        x: centre.x + normalX * lateralSpacing * lane,
-        y: centre.y + normalY * lateralSpacing * lane,
-      }))
-
-      const rowIsSafe = row.every((point) =>
-        isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt),
-      )
-      if (!rowIsSafe) continue
-
-      const tooCloseToExistingRow = rowCentres.some((other) => {
+      const basis = getCourseBasis(route, index, 3)
+      const tooCloseToExistingCluster = clusterCentres.some((other) => {
         const dx = other.x - centre.x
         const dy = other.y - centre.y
-        return dx * dx + dy * dy < minimumRowDistance * minimumRowDistance
+        return dx * dx + dy * dy < minimumClusterDistance * minimumClusterDistance
       })
-      if (tooCloseToExistingRow) continue
+      if (tooCloseToExistingCluster) continue
 
-      rowCentres.push(centre)
-      for (let lane = 0; lane < row.length; lane += 1) {
-        const point = row[lane]
+      const wideGrid = buildItemBoxGrid(centre, basis, lateralSpacing, longitudinalSpacing)
+      const safeWideGrid = wideGrid.every((point) =>
+        isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt),
+      )
+
+      const points = safeWideGrid
+        ? wideGrid
+        : buildItemBoxColumn(centre, basis, longitudinalSpacing * 0.72)
+            .filter((point) =>
+              isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt),
+            )
+
+      if (points.length < 3) continue
+
+      clusterCentres.push(centre)
+      points.forEach((point, pointIndex) => {
         itemBoxes.push({
-          id: `course-box-row-${rowCentres.length}-lane-${lane + 1}`,
+          id: `course-box-cluster-${clusterCentres.length}-${pointIndex + 1}`,
           x: point.x,
           y: point.y,
           active: true,
         })
-      }
+      })
     }
 
     system.itemBoxes.splice(0, system.itemBoxes.length, ...itemBoxes)
 
-    for (
-      let index = Math.floor(COIN_SAMPLE_STEP / 2);
-      index < route.length;
-      index += COIN_SAMPLE_STEP
-    ) {
-      const point = route[index]
-      if (!isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt)) continue
+    const coinPositions: RoutePoint[] = []
+    const spawnCoin = (point: RoutePoint, minimumSeparation: number) => {
+      if (!isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt)) return
+      if (isTooCloseToItemBox(point, itemBoxes, system.worldScale * 0.033)) return
+      if (coinPositions.some((coin) => distanceSquared(coin, point) < minimumSeparation * minimumSeparation)) return
 
-      const tooCloseToBox = itemBoxes.some((box) => {
-        const dx = box.x - point.x
-        const dy = box.y - point.y
-        const minDistance = system.worldScale * 0.035
-        return dx * dx + dy * dy < minDistance * minDistance
-      })
-      if (tooCloseToBox) continue
-
+      coinPositions.push(point)
       system.spawnWorldItem(
         'coin',
         'track',
@@ -165,6 +171,42 @@ export function installItemCourseEnhancements() {
         0,
         true,
       )
+    }
+
+    for (
+      let index = Math.floor(COIN_SAMPLE_STEP / 2);
+      index < route.length;
+      index += COIN_SAMPLE_STEP
+    ) {
+      spawnCoin(route[index], system.worldScale * 0.016)
+    }
+
+    const cornerCandidates = findCornerCandidates(route)
+    for (const corner of cornerCandidates) {
+      const centre = route[corner.index]
+      const basis = getCourseBasis(route, corner.index, CORNER_LOOKAHEAD)
+      const tightness = Phaser.Math.Clamp(
+        (corner.angle - CORNER_MIN_ANGLE) / 0.24,
+        0,
+        1,
+      )
+      const rows = Phaser.Math.Clamp(3 + Math.round(tightness * 5), 3, 8)
+      const columns = tightness > 0.58 ? 4 : 3
+      const lateralCoinSpacing = system.worldScale * CORNER_COIN_LATERAL_SPACING_RATIO
+      const longitudinalCoinSpacing = system.worldScale * CORNER_COIN_LONGITUDINAL_SPACING_RATIO
+
+      const grid = buildCoinGrid(
+        centre,
+        basis,
+        columns,
+        rows,
+        lateralCoinSpacing,
+        longitudinalCoinSpacing,
+      )
+
+      for (const point of grid) {
+        spawnCoin(point, system.worldScale * 0.014)
+      }
     }
   }
 
@@ -196,6 +238,148 @@ export function installItemCourseEnhancements() {
       break
     }
   }
+}
+
+function buildItemBoxGrid(
+  centre: RoutePoint,
+  basis: CourseBasis,
+  lateralSpacing: number,
+  longitudinalSpacing: number,
+) {
+  const points: RoutePoint[] = []
+  for (let row = -1; row <= 1; row += 1) {
+    for (let lane = -1; lane <= 1; lane += 1) {
+      points.push({
+        x:
+          centre.x +
+          basis.tangentX * longitudinalSpacing * row +
+          basis.normalX * lateralSpacing * lane,
+        y:
+          centre.y +
+          basis.tangentY * longitudinalSpacing * row +
+          basis.normalY * lateralSpacing * lane,
+      })
+    }
+  }
+  return points
+}
+
+function buildItemBoxColumn(
+  centre: RoutePoint,
+  basis: CourseBasis,
+  longitudinalSpacing: number,
+) {
+  const points: RoutePoint[] = []
+  for (let row = -4; row <= 4; row += 1) {
+    points.push({
+      x: centre.x + basis.tangentX * longitudinalSpacing * row,
+      y: centre.y + basis.tangentY * longitudinalSpacing * row,
+    })
+  }
+  return points
+}
+
+function buildCoinGrid(
+  centre: RoutePoint,
+  basis: CourseBasis,
+  columns: number,
+  rows: number,
+  lateralSpacing: number,
+  longitudinalSpacing: number,
+) {
+  const points: RoutePoint[] = []
+  const columnCentre = (columns - 1) / 2
+  const rowCentre = (rows - 1) / 2
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const lateral = (column - columnCentre) * lateralSpacing
+      const longitudinal = (row - rowCentre) * longitudinalSpacing
+      points.push({
+        x: centre.x + basis.normalX * lateral + basis.tangentX * longitudinal,
+        y: centre.y + basis.normalY * lateral + basis.tangentY * longitudinal,
+      })
+    }
+  }
+
+  return points
+}
+
+function findCornerCandidates(route: RoutePoint[]) {
+  const candidates: CornerCandidate[] = []
+
+  for (let index = 0; index < route.length; index += 1) {
+    const angle = getCornerAngle(route, index)
+    if (angle < CORNER_MIN_ANGLE) continue
+
+    const before = getCornerAngle(route, (index - 2 + route.length) % route.length)
+    const after = getCornerAngle(route, (index + 2) % route.length)
+    if (angle < before || angle < after) continue
+
+    candidates.push({ index, angle })
+  }
+
+  candidates.sort((a, b) => b.angle - a.angle)
+  const selected: CornerCandidate[] = []
+  for (const candidate of candidates) {
+    const overlaps = selected.some((other) => {
+      const direct = Math.abs(other.index - candidate.index)
+      const wrapped = route.length - direct
+      return Math.min(direct, wrapped) < CORNER_MIN_INDEX_DISTANCE
+    })
+    if (!overlaps) selected.push(candidate)
+  }
+
+  return selected.sort((a, b) => a.index - b.index)
+}
+
+function getCornerAngle(route: RoutePoint[], index: number) {
+  const count = route.length
+  const previous = route[(index - CORNER_LOOKAHEAD + count) % count]
+  const centre = route[index]
+  const next = route[(index + CORNER_LOOKAHEAD) % count]
+  const incomingX = centre.x - previous.x
+  const incomingY = centre.y - previous.y
+  const outgoingX = next.x - centre.x
+  const outgoingY = next.y - centre.y
+  const incomingLength = Math.max(0.001, Math.hypot(incomingX, incomingY))
+  const outgoingLength = Math.max(0.001, Math.hypot(outgoingX, outgoingY))
+  const dot = Phaser.Math.Clamp(
+    (incomingX * outgoingX + incomingY * outgoingY) /
+      (incomingLength * outgoingLength),
+    -1,
+    1,
+  )
+  return Math.acos(dot)
+}
+
+function getCourseBasis(route: RoutePoint[], index: number, lookahead: number): CourseBasis {
+  const count = route.length
+  const previous = route[(index - lookahead + count) % count]
+  const next = route[(index + lookahead) % count]
+  const tangentXRaw = next.x - previous.x
+  const tangentYRaw = next.y - previous.y
+  const length = Math.max(0.001, Math.hypot(tangentXRaw, tangentYRaw))
+  const tangentX = tangentXRaw / length
+  const tangentY = tangentYRaw / length
+
+  return {
+    tangentX,
+    tangentY,
+    normalX: -tangentY,
+    normalY: tangentX,
+  }
+}
+
+function isTooCloseToItemBox(point: RoutePoint, itemBoxes: ItemBoxState[], distance: number) {
+  const distanceSq = distance * distance
+  return itemBoxes.some((box) => distanceSquared(point, box) < distanceSq)
+}
+
+function distanceSquared(a: RoutePoint, b: RoutePoint) {
+  const dx = a.x - b.x
+  const dy = a.y - b.y
+  return dx * dx + dy * dy
 }
 
 function createItemBoxGroundBurst(
