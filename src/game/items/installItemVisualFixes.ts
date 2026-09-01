@@ -3,6 +3,7 @@ import { ItemSystem } from './ItemSystem'
 
 const COIN_FRAME_MARKER = 'retro-kart-coin-frame-'
 const BACKGROUND_TOLERANCE = 70
+const TRACK_COIN_SIZE_MULTIPLIER = 3
 
 let installed = false
 
@@ -109,7 +110,7 @@ export function installItemVisualFixes() {
       1,
     )
     const easedDepth = Phaser.Math.Easing.Quadratic.In(depth)
-    const size = Phaser.Math.Linear(11, 36, easedDepth)
+    const size = Phaser.Math.Linear(11, 36, easedDepth) * TRACK_COIN_SIZE_MULTIPLIER
     const bob = Math.sin(system.scene.time.now * 0.01 + item.id) * 2
 
     item.image
