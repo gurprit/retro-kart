@@ -169,7 +169,7 @@ export class RaceScene extends Phaser.Scene {
       worldScale,
       RACERS,
       startX,
-      startY,
+      startY - worldScale * 0.1,
       START_GRID.heading,
     )
 
