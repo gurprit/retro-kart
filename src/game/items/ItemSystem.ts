@@ -72,7 +72,6 @@ type WorldItem = {
 type WorldFrameConfig = {
   textureKey: string
   frameCount: number
-  vertical?: boolean
   fps?: number
 }
 
@@ -103,7 +102,7 @@ const ITEM_LABELS: Record<ItemType, string> = {
   banana: 'BANANA',
   bomb: 'BOMB',
   coin: 'COIN',
-  egg: 'EGG',
+  egg: 'FEATHER',
   fireball: 'FIREBALL',
   greenShell: 'GREEN SHELL',
   redShell: 'RED SHELL',
@@ -136,10 +135,6 @@ const ROULETTE_FRAMES: RouletteFrame[] = Array.from(
   }),
 )
 
-// Item Roulette.png layout from the SNES sheet:
-// 0 star, 1 banana, 2 green shell, 3 red shell, 6 coin, 7 lightning,
-// 8 mushroom, 10 feather. Custom items deliberately reuse only frames from
-// this sheet so no JPG artwork ever appears in the roulette/HUD.
 const ROULETTE_FRAME_BY_ITEM: Record<ItemType, number> = {
   star: 0,
   banana: 1,
@@ -153,10 +148,9 @@ const ROULETTE_FRAME_BY_ITEM: Record<ItemType, number> = {
 }
 const ROULETTE_CYCLE_FRAMES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10] as const
 
-const WORLD_FRAME_CONFIG: Record<WorldItemKind, WorldFrameConfig> = {
-  banana: { textureKey: 'item-banana', frameCount: 1 },
+const WORLD_FRAME_CONFIG: Record<Exclude<WorldItemKind, 'banana'>, WorldFrameConfig> = {
   bomb: { textureKey: 'item-bomb', frameCount: 1 },
-  coin: { textureKey: 'item-coin', frameCount: 3, vertical: true, fps: 10 },
+  coin: { textureKey: 'item-coin', frameCount: 3, fps: 10 },
   greenShell: { textureKey: 'item-green-shell', frameCount: 3, fps: 12 },
   redShell: { textureKey: 'item-red-shell', frameCount: 1 },
   fireball: { textureKey: 'item-fireball', frameCount: 5, fps: 15 },
@@ -186,11 +180,10 @@ const MARIO_CIRCUIT_TRACK_COINS = [
 
 const WORLD_ITEM_SIZE = 38
 const WORLD_ITEM_HIT_RADIUS_RATIO = 0.025
-const BANANA_DROP_DISTANCE_RATIO = 0.012
+const BANANA_DROP_DISTANCE_RATIO = 0.026
 const PROJECTILE_START_DISTANCE_RATIO = 0.055
 const SHELL_SPEED_RATIO = 0.62
 const FIREBALL_SPEED_RATIO = 0.68
-const EGG_SPEED_RATIO = 0.56
 const BOMB_THROW_SPEED_RATIO = 0.24
 const BOMB_FUSE_SECONDS = 1.05
 const BOMB_BLAST_RADIUS_RATIO = 0.145
@@ -203,6 +196,7 @@ const STAR_DURATION_SECONDS = 6
 const MUSHROOM_DURATION_SECONDS = 0.9
 const MUSHROOM_MULTIPLIER = 1.55
 const STAR_EVENT = 'retro-kart:star-activated'
+const FEATHER_EVENT = 'retro-kart:feather-activated'
 
 export class ItemSystem {
   private readonly scene: Phaser.Scene
@@ -313,9 +307,7 @@ export class ItemSystem {
     this.heldText.destroy()
     for (const item of this.worldItems) item.image.destroy()
     this.worldItems.length = 0
-    if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) {
-      this.scene.textures.remove(PANEL_TEXTURE_KEY)
-    }
+    if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) this.scene.textures.remove(PANEL_TEXTURE_KEY)
   }
 
   private checkItemBoxPickup() {
@@ -329,21 +321,16 @@ export class ItemSystem {
       const dx = owner.x - itemBox.x
       const dy = owner.y - itemBox.y
       if (dx * dx + dy * dy <= pickupRadiusSq) {
-        this.collect(itemBox)
+        itemBox.active = false
+        this.refreshGroundPanels()
+        this.startRoulette()
+        this.scene.time.delayedCall(ITEM_BOX_RESPAWN_MS, () => {
+          itemBox.active = true
+          this.refreshGroundPanels()
+        })
         break
       }
     }
-  }
-
-  private collect(itemBox: ItemBox) {
-    itemBox.active = false
-    this.refreshGroundPanels()
-    this.startRoulette()
-
-    this.scene.time.delayedCall(ITEM_BOX_RESPAWN_MS, () => {
-      itemBox.active = true
-      this.refreshGroundPanels()
-    })
   }
 
   private startRoulette() {
@@ -397,7 +384,7 @@ export class ItemSystem {
         this.spawnProjectile('fireball', owner, FIREBALL_SPEED_RATIO)
         break
       case 'egg':
-        this.spawnProjectile('egg', owner, EGG_SPEED_RATIO)
+        this.scene.events.emit(FEATHER_EVENT, owner.id)
         break
       case 'bomb':
         this.spawnBomb(owner)
@@ -411,26 +398,29 @@ export class ItemSystem {
         break
       case 'coin':
         this.hooks.addCoin(owner.id, 2)
+        this.createRouletteCoinVisual()
         break
     }
   }
 
   private spawnBanana(owner: ItemRacerState) {
     const distance = this.worldScale * BANANA_DROP_DISTANCE_RATIO
+    const forwardX = Math.sin(owner.angle)
+    const forwardY = -Math.cos(owner.angle)
     this.spawnWorldItem(
       'banana',
       owner.id,
-      owner.x - Math.sin(owner.angle) * distance,
-      owner.y + Math.cos(owner.angle) * distance,
+      owner.x + forwardX * distance,
+      owner.y + forwardY * distance,
       0,
       0,
       14,
-      0.8,
+      0.9,
     )
   }
 
   private spawnProjectile(
-    kind: 'greenShell' | 'redShell' | 'fireball' | 'egg',
+    kind: 'greenShell' | 'redShell' | 'fireball',
     owner: ItemRacerState,
     speedRatio: number,
   ) {
@@ -438,8 +428,7 @@ export class ItemSystem {
     const speed = this.worldScale * speedRatio
     const forwardX = Math.sin(owner.angle)
     const forwardY = -Math.cos(owner.angle)
-    const ttl = kind === 'fireball' ? 4 : kind === 'egg' ? 5 : 7
-
+    const ttl = kind === 'fireball' ? 4 : 7
     this.spawnWorldItem(
       kind,
       owner.id,
@@ -500,12 +489,12 @@ export class ItemSystem {
     const frameKeys = this.worldFrames.get(kind) ?? []
     if (frameKeys.length === 0) throw new Error(`Missing world item frames for ${kind}`)
 
-    const image = this.scene.add
-      .image(-1000, -1000, frameKeys[0])
+    const image = this.scene.add.image(-1000, -1000, frameKeys[0])
       .setDepth(12)
       .setOrigin(0.5)
       .setVisible(false)
 
+    const config = kind === 'banana' ? undefined : WORLD_FRAME_CONFIG[kind]
     const item: WorldItem = {
       id: this.nextWorldItemId++,
       kind,
@@ -518,7 +507,7 @@ export class ItemSystem {
       ownerGrace,
       trackCoin,
       frameKeys,
-      animationFps: WORLD_FRAME_CONFIG[kind].fps ?? 0,
+      animationFps: config?.fps ?? 0,
       image,
     }
     this.worldItems.push(item)
@@ -542,7 +531,7 @@ export class ItemSystem {
           this.removeWorldItem(index)
           continue
         }
-      } else if (item.kind !== 'banana' && item.kind !== 'coin') {
+      } else if (item.kind !== 'banana' && item.kind !== 'coin' && item.kind !== 'egg') {
         this.updateProjectile(item, deltaSeconds)
       }
 
@@ -584,8 +573,7 @@ export class ItemSystem {
   }
 
   private homeRedShell(item: WorldItem, deltaSeconds: number) {
-    const targets = this.hooks
-      .getRacers()
+    const targets = this.hooks.getRacers()
       .filter((racer) => racer.id !== item.ownerId)
       .sort((a, b) => {
         const adx = a.x - item.x
@@ -624,19 +612,14 @@ export class ItemSystem {
         if (item.trackCoin) {
           const { x, y } = item
           this.scene.time.delayedCall(TRACK_COIN_RESPAWN_MS, () => {
-            this.spawnWorldItem(
-              'coin',
-              'track',
-              x,
-              y,
-              0,
-              0,
-              Number.POSITIVE_INFINITY,
-              0,
-              true,
-            )
+            this.spawnWorldItem('coin', 'track', x, y, 0, 0, Number.POSITIVE_INFINITY, 0, true)
           })
         }
+        return true
+      }
+
+      if (item.kind === 'bomb') {
+        this.detonateBomb(item, camera)
         return true
       }
 
@@ -664,23 +647,13 @@ export class ItemSystem {
       const dx = racer.x - item.x
       const dy = racer.y - item.y
       if (dx * dx + dy * dy > radiusSq || racer.invulnerable) continue
-      this.hooks.spinOutRacer(
-        racer.id,
-        item.x,
-        item.y,
-        pushStrength,
-        BOMB_CONTROL_LOCK_SECONDS,
-      )
+      this.hooks.spinOutRacer(racer.id, item.x, item.y, pushStrength, BOMB_CONTROL_LOCK_SECONDS)
     }
 
     this.createExplosionVisual(item.x, item.y, camera)
   }
 
-  private createExplosionVisual(
-    worldX: number,
-    worldY: number,
-    camera: Mode7CameraState,
-  ) {
+  private createExplosionVisual(worldX: number, worldY: number, camera: Mode7CameraState) {
     const projected = this.renderer.projectWorldPoint(worldX, worldY, camera)
     if (!projected) return
 
@@ -702,18 +675,14 @@ export class ItemSystem {
     for (let index = 0; index < 26; index += 1) {
       const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
       const distance = Phaser.Math.Between(42, 105)
-      const spark = this.scene.add
-        .rectangle(
-          projected.x,
-          projected.y,
-          Phaser.Math.Between(2, 4),
-          Phaser.Math.Between(7, 13),
-          index % 3 === 0 ? 0xffffff : 0xffc35a,
-          1,
-        )
-        .setRotation(angle)
-        .setDepth(83)
-
+      const spark = this.scene.add.rectangle(
+        projected.x,
+        projected.y,
+        Phaser.Math.Between(2, 4),
+        Phaser.Math.Between(7, 13),
+        index % 3 === 0 ? 0xffffff : 0xffc35a,
+        1,
+      ).setRotation(angle).setDepth(83)
       this.scene.tweens.add({
         targets: spark,
         x: projected.x + Math.cos(angle) * distance,
@@ -729,18 +698,14 @@ export class ItemSystem {
     for (let index = 0; index < 24; index += 1) {
       const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
       const distance = Phaser.Math.Between(35, 92)
-      const debris = this.scene.add
-        .rectangle(
-          projected.x + Phaser.Math.Between(-5, 5),
-          projected.y + Phaser.Math.Between(-4, 4),
-          Phaser.Math.Between(3, 8),
-          Phaser.Math.Between(3, 8),
-          index % 3 === 0 ? 0x5a4433 : 0x2d2926,
-          1,
-        )
-        .setRotation(Phaser.Math.FloatBetween(0, Math.PI))
-        .setDepth(82)
-
+      const debris = this.scene.add.rectangle(
+        projected.x + Phaser.Math.Between(-5, 5),
+        projected.y + Phaser.Math.Between(-4, 4),
+        Phaser.Math.Between(3, 8),
+        Phaser.Math.Between(3, 8),
+        index % 3 === 0 ? 0x5a4433 : 0x2d2926,
+        1,
+      ).setRotation(Phaser.Math.FloatBetween(0, Math.PI)).setDepth(82)
       this.scene.tweens.add({
         targets: debris,
         x: projected.x + Math.cos(angle) * distance,
@@ -756,16 +721,13 @@ export class ItemSystem {
     for (let index = 0; index < 18; index += 1) {
       const angle = Phaser.Math.FloatBetween(0, Math.PI * 2)
       const distance = Phaser.Math.Between(18, 58)
-      const smoke = this.scene.add
-        .circle(
-          projected.x + Math.cos(angle) * 8,
-          projected.y + Math.sin(angle) * 5,
-          Phaser.Math.Between(6, 12),
-          index % 2 === 0 ? 0x665f58 : 0x3c3936,
-          0.82,
-        )
-        .setDepth(81)
-
+      const smoke = this.scene.add.circle(
+        projected.x + Math.cos(angle) * 8,
+        projected.y + Math.sin(angle) * 5,
+        Phaser.Math.Between(6, 12),
+        index % 2 === 0 ? 0x665f58 : 0x3c3936,
+        0.82,
+      ).setDepth(81)
       this.scene.tweens.add({
         targets: smoke,
         x: projected.x + Math.cos(angle) * distance,
@@ -779,19 +741,54 @@ export class ItemSystem {
     }
   }
 
-  private createCoinPickupVisual(
-    worldX: number,
-    worldY: number,
-    camera: Mode7CameraState,
-  ) {
+  private createRouletteCoinVisual() {
+    const frames = this.worldFrames.get('coin') ?? []
+    if (frames.length === 0) return
+
+    const x = this.scene.scale.width / 2
+    const startY = this.scene.scale.height - 105
+    const coin = this.scene.add.image(x, startY, frames[0])
+      .setDepth(90)
+      .setDisplaySize(38, 38)
+      .setOrigin(0.5)
+
+    let frameIndex = 0
+    const animation = this.scene.time.addEvent({
+      delay: 80,
+      loop: true,
+      callback: () => {
+        frameIndex = (frameIndex + 1) % frames.length
+        coin.setTexture(frames[frameIndex])
+      },
+    })
+
+    this.scene.tweens.add({
+      targets: coin,
+      y: startY - 88,
+      duration: 270,
+      ease: 'Quad.easeOut',
+      yoyo: true,
+      hold: 70,
+      onComplete: () => {
+        animation.destroy()
+        coin.destroy()
+      },
+    })
+  }
+
+  private createCoinPickupVisual(worldX: number, worldY: number, camera: Mode7CameraState) {
     const projected = this.renderer.projectWorldPoint(worldX, worldY, camera)
     if (!projected) return
 
     for (let index = 0; index < 8; index += 1) {
       const angle = (index / 8) * Math.PI * 2
-      const sparkle = this.scene.add
-        .circle(projected.x, projected.y, 3, index % 2 === 0 ? 0xffffff : 0xffe34d, 1)
-        .setDepth(84)
+      const sparkle = this.scene.add.circle(
+        projected.x,
+        projected.y,
+        3,
+        index % 2 === 0 ? 0xffffff : 0xffe34d,
+        1,
+      ).setDepth(84)
       this.scene.tweens.add({
         targets: sparkle,
         x: projected.x + Math.cos(angle) * 24,
@@ -818,19 +815,15 @@ export class ItemSystem {
     }
 
     const scale = Phaser.Math.Clamp(projected.scale, 0.42, 1.75)
-    const bob =
-      item.kind === 'banana'
-        ? 0
-        : Math.sin(this.scene.time.now * 0.01 + item.id) * (item.kind === 'coin' ? 2 : 3)
-    const sizeMultiplier = item.kind === 'banana' ? 1.15 : item.kind === 'coin' ? 0.92 : 1
+    const bob = item.kind === 'banana'
+      ? 0
+      : Math.sin(this.scene.time.now * 0.01 + item.id) * (item.kind === 'coin' ? 2 : 3)
+    const sizeMultiplier = item.kind === 'banana' ? 1.45 : item.kind === 'coin' ? 0.92 : 1
 
     item.image
       .setVisible(true)
       .setPosition(projected.x, projected.y - 7 * scale + bob)
-      .setDisplaySize(
-        WORLD_ITEM_SIZE * scale * sizeMultiplier,
-        WORLD_ITEM_SIZE * scale * sizeMultiplier,
-      )
+      .setDisplaySize(WORLD_ITEM_SIZE * scale * sizeMultiplier, WORLD_ITEM_SIZE * scale * sizeMultiplier)
       .setDepth(12 + projected.screenY * 0.01)
       .setRotation(item.kind === 'fireball' ? this.scene.time.now * 0.004 : 0)
   }
@@ -841,18 +834,27 @@ export class ItemSystem {
   }
 
   private registerWorldItemFrames() {
+    const bananaKey = this.createStandaloneFrame(
+      this.rouletteTextureKey,
+      ROULETTE_FRAMES[ROULETTE_FRAME_BY_ITEM.banana].name,
+      'retro-kart-banana-world-frame',
+    )
+    if (bananaKey) this.worldFrames.set('banana', [bananaKey])
+
     for (const [kind, config] of Object.entries(WORLD_FRAME_CONFIG) as [
-      WorldItemKind,
+      Exclude<WorldItemKind, 'banana'>,
       WorldFrameConfig,
     ][]) {
       const texture = this.scene.textures.get(config.textureKey)
       const source = texture.getSourceImage() as { width: number; height: number }
-      const frameWidth = config.vertical
-        ? source.width
-        : Math.floor(source.width / config.frameCount)
-      const frameHeight = config.vertical
-        ? Math.floor(source.height / config.frameCount)
-        : source.height
+
+      const horizontalFrameWidth = source.width / config.frameCount
+      const horizontalAspect = horizontalFrameWidth / Math.max(1, source.height)
+      const verticalFrameHeight = source.height / config.frameCount
+      const verticalAspect = source.width / Math.max(1, verticalFrameHeight)
+      const horizontal = Math.abs(horizontalAspect - 1) <= Math.abs(verticalAspect - 1)
+      const frameWidth = horizontal ? Math.floor(source.width / config.frameCount) : source.width
+      const frameHeight = horizontal ? source.height : Math.floor(source.height / config.frameCount)
       const standaloneKeys: string[] = []
 
       for (let index = 0; index < config.frameCount; index += 1) {
@@ -861,57 +863,51 @@ export class ItemSystem {
           texture.add(
             frameName,
             0,
-            config.vertical ? 0 : index * frameWidth,
-            config.vertical ? index * frameHeight : 0,
+            horizontal ? index * frameWidth : 0,
+            horizontal ? 0 : index * frameHeight,
             frameWidth,
             frameHeight,
           )
         }
-
         const key = `retro-kart-${kind}-frame-${index}`
-        if (!this.scene.textures.exists(key)) {
-          const sourceFrame = texture.get(frameName)
-          const canvasTexture = this.scene.textures.createCanvas(
-            key,
-            sourceFrame.width,
-            sourceFrame.height,
-          )
-          if (canvasTexture) {
-            const sourceImage = texture.getSourceImage() as CanvasImageSource
-            canvasTexture.context.imageSmoothingEnabled = false
-            canvasTexture.context.drawImage(
-              sourceImage,
-              sourceFrame.cutX,
-              sourceFrame.cutY,
-              sourceFrame.cutWidth,
-              sourceFrame.cutHeight,
-              0,
-              0,
-              sourceFrame.width,
-              sourceFrame.height,
-            )
-            canvasTexture.refresh()
-          }
-        }
-        standaloneKeys.push(key)
+        const standaloneKey = this.createStandaloneFrame(config.textureKey, frameName, key)
+        if (standaloneKey) standaloneKeys.push(standaloneKey)
       }
 
       this.worldFrames.set(kind, standaloneKeys)
     }
   }
 
+  private createStandaloneFrame(textureKey: string, frameName: string, outputKey: string) {
+    if (this.scene.textures.exists(outputKey)) return outputKey
+    const texture = this.scene.textures.get(textureKey)
+    const sourceFrame = texture.get(frameName)
+    const canvasTexture = this.scene.textures.createCanvas(outputKey, sourceFrame.width, sourceFrame.height)
+    if (!canvasTexture) return undefined
+
+    const sourceImage = texture.getSourceImage() as CanvasImageSource
+    canvasTexture.context.imageSmoothingEnabled = false
+    canvasTexture.context.clearRect(0, 0, sourceFrame.width, sourceFrame.height)
+    canvasTexture.context.drawImage(
+      sourceImage,
+      sourceFrame.cutX,
+      sourceFrame.cutY,
+      sourceFrame.cutWidth,
+      sourceFrame.cutHeight,
+      0,
+      0,
+      sourceFrame.width,
+      sourceFrame.height,
+    )
+    canvasTexture.refresh()
+    return outputKey
+  }
+
   private registerRouletteFrames(textureKey: string) {
     const texture = this.scene.textures.get(textureKey)
     for (const frame of ROULETTE_FRAMES) {
       if (texture.has(frame.name)) continue
-      texture.add(
-        frame.name,
-        0,
-        frame.x,
-        frame.y,
-        ROULETTE_FRAME_WIDTH,
-        ROULETTE_FRAME_HEIGHT,
-      )
+      texture.add(frame.name, 0, frame.x, frame.y, ROULETTE_FRAME_WIDTH, ROULETTE_FRAME_HEIGHT)
     }
   }
 
@@ -940,7 +936,6 @@ export class ItemSystem {
 
   private createPanelTexture() {
     if (this.scene.textures.exists(PANEL_TEXTURE_KEY)) return
-
     const texture = this.scene.textures.createCanvas(
       PANEL_TEXTURE_KEY,
       PANEL_SIZE * PANEL_FRAME_COUNT,
@@ -950,7 +945,6 @@ export class ItemSystem {
 
     const context = texture.context
     context.imageSmoothingEnabled = false
-
     for (let frame = 0; frame < ACTIVE_PANEL_FRAMES; frame += 1) {
       const frameX = frame * PANEL_SIZE
       this.drawPanelBase(context, frameX, true)
@@ -963,17 +957,12 @@ export class ItemSystem {
       this.drawQuestionMark(context, frameX + glyphX - PANEL_SIZE, 5)
       context.restore()
     }
-
     this.drawPanelBase(context, EMPTY_PANEL_FRAME * PANEL_SIZE, false)
     this.drawSadFace(context, EMPTY_PANEL_FRAME * PANEL_SIZE, 0)
     texture.refresh()
   }
 
-  private drawPanelBase(
-    context: CanvasRenderingContext2D,
-    x: number,
-    active: boolean,
-  ) {
+  private drawPanelBase(context: CanvasRenderingContext2D, x: number, active: boolean) {
     context.fillStyle = active ? '#ffc000' : '#d90000'
     context.fillRect(x, 0, PANEL_SIZE, PANEL_SIZE)
     context.fillStyle = active ? '#ffffff' : '#ff9300'
@@ -984,11 +973,7 @@ export class ItemSystem {
     context.fillRect(x + PANEL_SIZE - 2, 0, 2, PANEL_SIZE)
   }
 
-  private drawQuestionMark(
-    context: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-  ) {
+  private drawQuestionMark(context: CanvasRenderingContext2D, x: number, y: number) {
     context.fillStyle = '#050505'
     const block = 3
     const pixels = [
@@ -1000,11 +985,7 @@ export class ItemSystem {
     }
   }
 
-  private drawSadFace(
-    context: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-  ) {
+  private drawSadFace(context: CanvasRenderingContext2D, x: number, y: number) {
     context.fillStyle = '#4b0000'
     context.fillRect(x + 8, y + 9, 4, 5)
     context.fillRect(x + 20, y + 9, 4, 5)
