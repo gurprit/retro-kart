@@ -5,6 +5,7 @@ import { PlayerKart } from '../entities/PlayerKart'
 import { SkidEffects } from '../effects/SkidEffects'
 import { TouchControls } from '../input/TouchControls'
 import { ItemSystem } from '../items/ItemSystem'
+import { MultiplayerManager } from '../network/MultiplayerManager'
 import {
   Mode7Renderer,
   type Mode7CameraState,
@@ -70,6 +71,7 @@ export class RaceScene extends Phaser.Scene {
   private parallaxBackground?: ParallaxBackground
   private playerKart?: PlayerKart
   private computerRacers?: ComputerRacerManager
+  private multiplayer?: MultiplayerManager
   private racerSprite?: RacerSpriteView
   private skidEffects?: SkidEffects
   private itemSystem?: ItemSystem
@@ -79,6 +81,7 @@ export class RaceScene extends Phaser.Scene {
   private surfaceText?: Phaser.GameObjects.Text
   private racerText?: Phaser.GameObjects.Text
   private coinText?: Phaser.GameObjects.Text
+  private networkText?: Phaser.GameObjects.Text
   private currentSurface: TrackSurface = 'road'
   private selectedRacer: RacerProfile = RACERS[0]
 
@@ -173,6 +176,14 @@ export class RaceScene extends Phaser.Scene {
       START_GRID.heading,
     )
 
+    this.multiplayer = new MultiplayerManager(this, this.mode7Renderer, RACERS)
+    void this.multiplayer.connect(this.selectedRacer.key, {
+      x: this.playerKart.x,
+      y: this.playerKart.y,
+      angle: this.playerKart.angle,
+      speedRatio: this.playerKart.speedRatio,
+    })
+
     this.currentSurface = this.trackSurfaceMap.sample(this.playerKart.x, this.playerKart.y)
     this.syncCameraToKart()
     this.createKeyboardControls()
@@ -263,6 +274,8 @@ export class RaceScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.itemSystem?.destroy()
       this.itemSystem = undefined
+      this.multiplayer?.destroy()
+      this.multiplayer = undefined
       this.computerRacers?.destroy()
       this.computerRacers = undefined
       this.touchControls?.destroy()
@@ -272,6 +285,16 @@ export class RaceScene extends Phaser.Scene {
     this.parallaxBackground.update(this.cameraState.angle)
     this.mode7Renderer.render(this.cameraState)
     this.computerRacers.update(0, this.cameraState)
+    this.multiplayer.update(
+      0,
+      {
+        x: this.playerKart.x,
+        y: this.playerKart.y,
+        angle: this.playerKart.angle,
+        speedRatio: this.playerKart.speedRatio,
+      },
+      this.cameraState,
+    )
     this.itemSystem.update(0, this.cameraState)
     this.updateHud()
   }
@@ -345,6 +368,16 @@ export class RaceScene extends Phaser.Scene {
     this.syncCameraToKart()
     this.parallaxBackground?.update(this.cameraState.angle)
     this.computerRacers?.update(deltaSeconds, this.cameraState)
+    this.multiplayer?.update(
+      deltaSeconds,
+      {
+        x: this.playerKart.x,
+        y: this.playerKart.y,
+        angle: this.playerKart.angle,
+        speedRatio: this.playerKart.speedRatio,
+      },
+      this.cameraState,
+    )
 
     const keyboardItemPressed =
       this.useItemKey && Phaser.Input.Keyboard.JustDown(this.useItemKey)
@@ -392,7 +425,7 @@ export class RaceScene extends Phaser.Scene {
   }
 
   private createHud() {
-    this.add.text(20, 18, 'RETRO KART // 20 CPU RACERS', {
+    this.add.text(20, 18, 'RETRO KART // MULTIPLAYER TEST', {
       fontFamily: 'monospace', fontSize: '20px', color: '#ffffff',
       stroke: '#000000', strokeThickness: 4,
     }).setDepth(30)
@@ -419,6 +452,11 @@ export class RaceScene extends Phaser.Scene {
 
     this.coinText = this.add.text(20, 114, 'COINS 00', {
       fontFamily: 'monospace', fontSize: '13px', color: '#ffe66d',
+      stroke: '#000000', strokeThickness: 3,
+    }).setDepth(30)
+
+    this.networkText = this.add.text(20, 134, 'HUMANS 1', {
+      fontFamily: 'monospace', fontSize: '13px', color: '#9fffb0',
       stroke: '#000000', strokeThickness: 3,
     }).setDepth(30)
 
@@ -449,6 +487,7 @@ export class RaceScene extends Phaser.Scene {
       `${this.selectedRacer.name.toUpperCase()} // ${this.selectedRacer.weightClass.toUpperCase()}`,
     )
     this.coinText?.setText(`COINS ${this.playerKart.coins.toString().padStart(2, '0')}`)
+    this.networkText?.setText(`HUMANS ${1 + (this.multiplayer?.remoteCount ?? 0)}`)
 
     const surfaceLabel =
       this.currentSurface === 'road'
