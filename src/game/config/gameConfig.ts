@@ -3,7 +3,6 @@ import { RaceScene } from '../scenes/RaceScene'
 
 const BASE_RACE_HEIGHT = 600
 const PORTRAIT_WIDTH = 800
-const PORTRAIT_HEIGHT = 1040
 
 const isTouchDevice =
   typeof navigator !== 'undefined' &&
@@ -11,9 +10,19 @@ const isTouchDevice =
 const isPortrait =
   isTouchDevice && window.innerHeight > window.innerWidth
 
+// Match the portrait canvas to the actual browser viewport aspect ratio so the
+// handheld body reaches the bottom of the usable screen instead of leaving a
+// black strip underneath it.
+const portraitHeight = isPortrait
+  ? Phaser.Math.Clamp(
+      Math.round(PORTRAIT_WIDTH * (window.innerHeight / window.innerWidth)),
+      1180,
+      1600,
+    )
+  : 1040
+
 // Landscape uses the real browser aspect ratio so Mode 7 renders extra world
-// at the sides instead of stretching the old 4:3 image. Portrait keeps a 4:3
-// race screen at the top and reserves the lower canvas for handheld controls.
+// at the sides instead of stretching the old 4:3 image.
 const landscapeWidth = isTouchDevice
   ? Phaser.Math.Clamp(
       Math.round(BASE_RACE_HEIGHT * (window.innerWidth / window.innerHeight)),
@@ -26,7 +35,7 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
 
   width: isPortrait ? PORTRAIT_WIDTH : landscapeWidth,
-  height: isPortrait ? PORTRAIT_HEIGHT : BASE_RACE_HEIGHT,
+  height: isPortrait ? portraitHeight : BASE_RACE_HEIGHT,
 
   parent: 'game',
 
@@ -39,8 +48,6 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
 
   scale: {
     mode: Phaser.Scale.FIT,
-    // In portrait, pin the handheld canvas to the top so the race screen sits
-    // directly beneath the browser chrome and the controls use the space below.
     autoCenter: isPortrait
       ? Phaser.Scale.CENTER_HORIZONTALLY
       : Phaser.Scale.CENTER_BOTH,
