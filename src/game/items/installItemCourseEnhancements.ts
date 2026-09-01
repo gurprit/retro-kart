@@ -4,8 +4,10 @@ import { ItemSystem } from './ItemSystem'
 const TRACK_TEXTURE_KEY = 'prototype-track'
 const ROUTE_SAMPLE_COUNT = 320
 const COIN_SAMPLE_STEP = 4
-const ITEM_BOX_SAMPLE_STEP = 12
+const ITEM_BOX_ROW_STEP = 28
 const ITEM_BOX_RESPAWN_MS = 5000
+const ITEM_BOX_LATERAL_SPACING_RATIO = 0.047
+const ITEM_BOX_ROW_MIN_DISTANCE_RATIO = 0.105
 
 const COURSE_ROUTE = [
   { x: 0.91, y: 0.61 },
@@ -89,32 +91,65 @@ export function installItemCourseEnhancements() {
     const roadSampler = createRoadSampler(system.scene)
     const route = buildCourseRoute(system.renderer.sourceWidth, system.renderer.sourceHeight)
     const clearance = Math.max(6, system.worldScale * 0.007)
-    const validRoute = route.filter((point) =>
-      isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt),
-    )
+    const lateralSpacing = system.worldScale * ITEM_BOX_LATERAL_SPACING_RATIO
+    const minimumRowDistance = system.worldScale * ITEM_BOX_ROW_MIN_DISTANCE_RATIO
 
     const itemBoxes: ItemBoxState[] = []
-    for (let index = 0; index < validRoute.length; index += ITEM_BOX_SAMPLE_STEP) {
-      const point = validRoute[index]
-      itemBoxes.push({
-        id: `course-box-${itemBoxes.length + 1}`,
-        x: point.x,
-        y: point.y,
-        active: true,
+    const rowCentres: RoutePoint[] = []
+
+    for (let index = 0; index < route.length; index += ITEM_BOX_ROW_STEP) {
+      const centre = route[index]
+      const previous = route[(index - 2 + route.length) % route.length]
+      const next = route[(index + 2) % route.length]
+      const tangentX = next.x - previous.x
+      const tangentY = next.y - previous.y
+      const tangentLength = Math.max(0.001, Math.hypot(tangentX, tangentY))
+      const normalX = -tangentY / tangentLength
+      const normalY = tangentX / tangentLength
+
+      const row = [-1, 0, 1].map((lane) => ({
+        x: centre.x + normalX * lateralSpacing * lane,
+        y: centre.y + normalY * lateralSpacing * lane,
+      }))
+
+      const rowIsSafe = row.every((point) =>
+        isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt),
+      )
+      if (!rowIsSafe) continue
+
+      const tooCloseToExistingRow = rowCentres.some((other) => {
+        const dx = other.x - centre.x
+        const dy = other.y - centre.y
+        return dx * dx + dy * dy < minimumRowDistance * minimumRowDistance
       })
+      if (tooCloseToExistingRow) continue
+
+      rowCentres.push(centre)
+      for (let lane = 0; lane < row.length; lane += 1) {
+        const point = row[lane]
+        itemBoxes.push({
+          id: `course-box-row-${rowCentres.length}-lane-${lane + 1}`,
+          x: point.x,
+          y: point.y,
+          active: true,
+        })
+      }
     }
+
     system.itemBoxes.splice(0, system.itemBoxes.length, ...itemBoxes)
 
     for (
       let index = Math.floor(COIN_SAMPLE_STEP / 2);
-      index < validRoute.length;
+      index < route.length;
       index += COIN_SAMPLE_STEP
     ) {
-      const point = validRoute[index]
+      const point = route[index]
+      if (!isSafeRoadPoint(point, clearance, roadSampler, system.hooks.isBarrierAt)) continue
+
       const tooCloseToBox = itemBoxes.some((box) => {
         const dx = box.x - point.x
         const dy = box.y - point.y
-        const minDistance = system.worldScale * 0.032
+        const minDistance = system.worldScale * 0.035
         return dx * dx + dy * dy < minDistance * minDistance
       })
       if (tooCloseToBox) continue
