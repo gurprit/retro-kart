@@ -294,6 +294,7 @@ export class RaceScene extends Phaser.Scene {
         speedRatio: this.playerKart.speedRatio,
       },
       this.cameraState,
+      this.computerRacers.snapshots,
     )
     this.itemSystem.update(0, this.cameraState)
     this.updateHud()
@@ -367,7 +368,17 @@ export class RaceScene extends Phaser.Scene {
 
     this.syncCameraToKart()
     this.parallaxBackground?.update(this.cameraState.angle)
-    this.computerRacers?.update(deltaSeconds, this.cameraState)
+
+    if (this.multiplayer?.shouldSimulateCpus ?? true) {
+      this.computerRacers?.update(deltaSeconds, this.cameraState)
+    } else {
+      this.computerRacers?.applyNetworkSnapshots(
+        this.multiplayer?.cpuSnapshots ?? [],
+        deltaSeconds,
+        this.cameraState,
+      )
+    }
+
     this.multiplayer?.update(
       deltaSeconds,
       {
@@ -377,6 +388,7 @@ export class RaceScene extends Phaser.Scene {
         speedRatio: this.playerKart.speedRatio,
       },
       this.cameraState,
+      this.computerRacers?.snapshots ?? [],
     )
 
     const keyboardItemPressed =
@@ -487,7 +499,10 @@ export class RaceScene extends Phaser.Scene {
       `${this.selectedRacer.name.toUpperCase()} // ${this.selectedRacer.weightClass.toUpperCase()}`,
     )
     this.coinText?.setText(`COINS ${this.playerKart.coins.toString().padStart(2, '0')}`)
-    this.networkText?.setText(`HUMANS ${1 + (this.multiplayer?.remoteCount ?? 0)}`)
+    const cpuRole = this.multiplayer?.shouldSimulateCpus ? 'HOST' : 'SYNC'
+    this.networkText?.setText(
+      `HUMANS ${1 + (this.multiplayer?.remoteCount ?? 0)} // CPU ${cpuRole}`,
+    )
 
     const surfaceLabel =
       this.currentSurface === 'road'
