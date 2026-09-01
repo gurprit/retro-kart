@@ -20,6 +20,15 @@ const SURFACE_HANDLING: Record<TrackSurface, KartSurfaceHandling> = {
   void: { speedMultiplier: 0.42, gripMultiplier: 0.55, dragMultiplier: 2.8 },
 }
 
+export type CpuRacerSnapshot = {
+  id: string
+  x: number
+  y: number
+  angle: number
+  speedRatio: number
+  steering: number
+}
+
 type CpuRacer = {
   id: string
   kart: PlayerKart
@@ -103,9 +112,50 @@ export class ComputerRacerManager {
     }
   }
 
+  applyNetworkSnapshots(
+    snapshots: readonly CpuRacerSnapshot[],
+    deltaSeconds: number,
+    camera: Mode7CameraState,
+  ) {
+    const byId = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]))
+    const amount = 1 - Math.exp(-14 * deltaSeconds)
+
+    for (const racer of this.racers) {
+      const snapshot = byId.get(racer.id)
+      if (snapshot) {
+        racer.kart.x = Phaser.Math.Linear(racer.kart.x, snapshot.x, amount)
+        racer.kart.y = Phaser.Math.Linear(racer.kart.y, snapshot.y, amount)
+        racer.kart.speed = Phaser.Math.Linear(
+          racer.kart.speed,
+          snapshot.speedRatio * racer.kart.maxForwardSpeed,
+          amount,
+        )
+
+        let angleDifference = snapshot.angle - racer.kart.angle
+        while (angleDifference > Math.PI) angleDifference -= Math.PI * 2
+        while (angleDifference < -Math.PI) angleDifference += Math.PI * 2
+        racer.kart.angle += angleDifference * amount
+        racer.steering = Phaser.Math.Linear(racer.steering, snapshot.steering, amount)
+      }
+
+      this.updateSprite(racer, camera)
+    }
+  }
+
   destroy() {
     for (const racer of this.racers) racer.sprite.destroy()
     this.racers.length = 0
+  }
+
+  get snapshots(): CpuRacerSnapshot[] {
+    return this.racers.map(({ id, kart, steering }) => ({
+      id,
+      x: kart.x,
+      y: kart.y,
+      angle: kart.angle,
+      speedRatio: kart.speedRatio,
+      steering,
+    }))
   }
 
   get itemStates(): ItemRacerState[] {
@@ -155,10 +205,12 @@ export class ComputerRacerManager {
     if (racer.recoveryTimer > 0) {
       racer.recoveryTimer = Math.max(0, racer.recoveryTimer - deltaSeconds)
 
-      // Steering is reversed while travelling backwards. Use the opposite
-      // control so the kart's nose rotates toward the open-road direction.
       const reverseSteering = -racer.recoverySteering
-      racer.steering = Phaser.Math.Linear(racer.steering, reverseSteering, Math.min(1, deltaSeconds * 8))
+      racer.steering = Phaser.Math.Linear(
+        racer.steering,
+        reverseSteering,
+        Math.min(1, deltaSeconds * 8),
+      )
       kart.update(
         {
           accelerate: false,
@@ -171,9 +223,7 @@ export class ComputerRacerManager {
         handling,
       )
 
-      if (racer.recoveryTimer === 0) {
-        racer.recoveryForwardTimer = 0.85
-      }
+      if (racer.recoveryTimer === 0) racer.recoveryForwardTimer = 0.85
     } else if (racer.recoveryForwardTimer > 0) {
       racer.recoveryForwardTimer = Math.max(0, racer.recoveryForwardTimer - deltaSeconds)
       racer.steering = Phaser.Math.Linear(
@@ -193,9 +243,7 @@ export class ComputerRacerManager {
         handling,
       )
     } else {
-      if (racer.stuckTimer > 0.95) {
-        this.beginRecovery(racer)
-      }
+      if (racer.stuckTimer > 0.95) this.beginRecovery(racer)
 
       const desiredSteering = this.chooseSteering(racer)
       racer.steering = Phaser.Math.Linear(
@@ -205,7 +253,8 @@ export class ComputerRacerManager {
       )
 
       const hardCorner = Math.abs(racer.steering) > 0.48
-      const shouldBrake = hardCorner && Math.abs(kart.speedRatio) > 0.68 + racer.skill * 0.18
+      const shouldBrake =
+        hardCorner && Math.abs(kart.speedRatio) > 0.68 + racer.skill * 0.18
       const canPowerslide = racer.skill > 0.7
 
       kart.update(
@@ -224,9 +273,7 @@ export class ComputerRacerManager {
       )
     }
 
-    if (
-      this.track.collidesAlongSegment(previousX, previousY, kart.x, kart.y)
-    ) {
+    if (this.track.collidesAlongSegment(previousX, previousY, kart.x, kart.y)) {
       kart.applyCollision(previousX, previousY)
       this.beginRecovery(racer)
     }
@@ -337,11 +384,7 @@ export class ComputerRacerManager {
   }
 
   private updateSprite(racer: CpuRacer, camera: Mode7CameraState) {
-    const projected = this.renderer.projectWorldPoint(
-      racer.kart.x,
-      racer.kart.y,
-      camera,
-    )
+    const projected = this.renderer.projectWorldPoint(racer.kart.x, racer.kart.y, camera)
 
     if (!projected) {
       racer.sprite.setVisible(false)
