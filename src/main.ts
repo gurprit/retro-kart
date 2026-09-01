@@ -3,12 +3,14 @@ import { gameConfig } from './game/config/gameConfig'
 import { installBananaTransparency } from './game/items/installBananaTransparency'
 import { installItemCourseEnhancements } from './game/items/installItemCourseEnhancements'
 import { installItemVisualFixes } from './game/items/installItemVisualFixes'
+import { installLightningPowerUp } from './game/items/installLightningPowerUp'
 import { installWorldPickupParticles } from './game/items/installWorldPickupParticles'
 
 installItemVisualFixes()
 installBananaTransparency()
 installItemCourseEnhancements()
 installWorldPickupParticles()
+installLightningPowerUp()
 new Phaser.Game(gameConfig)
 
 const isTouchDevice =
