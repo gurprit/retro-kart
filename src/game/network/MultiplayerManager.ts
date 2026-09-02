@@ -74,7 +74,6 @@ export class MultiplayerManager {
   private sendAccumulator = 0
   private connected = false
   private destroyed = false
-  private simulationHostId?: string
   private latestCpuSnapshots: CpuRacerSnapshot[] = []
 
   constructor(
@@ -124,12 +123,6 @@ export class MultiplayerManager {
       room.onMessage('player-left', ({ id }: { id: string }) => {
         this.removeRemote(id)
       })
-      room.onMessage('simulation-host', ({ id }: { id: string | null }) => {
-        this.simulationHostId = id ?? undefined
-        console.log(
-          `[multiplayer] CPU simulation ${this.isSimulationHost ? 'HOST' : 'CLIENT'}`,
-        )
-      })
       room.onMessage('cpus', (snapshots: CpuRacerSnapshot[]) => {
         if (!Array.isArray(snapshots)) return
         this.latestCpuSnapshots = snapshots.map((snapshot) => ({ ...snapshot }))
@@ -140,7 +133,6 @@ export class MultiplayerManager {
       room.onLeave(() => {
         this.connected = false
         this.room = undefined
-        this.simulationHostId = undefined
         this.latestCpuSnapshots = []
         this.clearRemotes()
         this.clearNetworkItems()
@@ -149,7 +141,7 @@ export class MultiplayerManager {
         console.warn('[multiplayer] room error', code, message)
       })
 
-      console.log(`[multiplayer] joined ${room.roomId} as ${room.sessionId}`)
+      console.log(`[multiplayer] joined ${room.roomId} as ${room.sessionId}; CPUs are server-owned`)
     } catch (error) {
       console.warn('[multiplayer] server unavailable; continuing offline', error)
     }
@@ -159,16 +151,12 @@ export class MultiplayerManager {
     deltaSeconds: number,
     local: LocalKartState,
     camera: Mode7CameraState,
-    cpuSnapshots: readonly CpuRacerSnapshot[] = [],
   ) {
     if (this.connected && this.room) {
       this.sendAccumulator += deltaSeconds
       if (this.sendAccumulator >= SEND_INTERVAL_SECONDS) {
         this.sendAccumulator %= SEND_INTERVAL_SECONDS
         this.room.send('kart', local)
-        if (this.isSimulationHost && cpuSnapshots.length > 0) {
-          this.room.send('cpus', cpuSnapshots)
-        }
       }
     }
 
@@ -196,7 +184,6 @@ export class MultiplayerManager {
     this.connected = false
     const room = this.room
     this.room = undefined
-    this.simulationHostId = undefined
     this.latestCpuSnapshots = []
     if (room) void room.leave()
     this.clearRemotes()
@@ -207,16 +194,12 @@ export class MultiplayerManager {
     return this.remoteRacers.size
   }
 
-  get isSimulationHost() {
-    return Boolean(
-      this.connected &&
-        this.room &&
-        this.simulationHostId === this.room.sessionId,
-    )
+  get shouldSimulateCpus() {
+    return !this.connected
   }
 
-  get shouldSimulateCpus() {
-    return !this.connected || this.isSimulationHost
+  get cpuSource() {
+    return this.connected ? 'SERVER' : 'LOCAL'
   }
 
   get cpuSnapshots(): readonly CpuRacerSnapshot[] {
@@ -363,8 +346,7 @@ export class MultiplayerManager {
       }
 
       if (item.frameKeys.length > 1 && item.animationFps > 0) {
-        const frameIndex =
-          Math.floor(item.age * item.animationFps) % item.frameKeys.length
+        const frameIndex = Math.floor(item.age * item.animationFps) % item.frameKeys.length
         item.image.setTexture(item.frameKeys[frameIndex])
       }
 
