@@ -1,4 +1,7 @@
+import path from 'node:path'
 import { defineRoom, defineServer, Room, type Client } from 'colyseus'
+import { ServerCpuSimulation } from './ServerCpuSimulation'
+import { ServerTrackMap } from './ServerTrackMap'
 
 type KartSnapshot = {
   id: string
@@ -7,15 +10,6 @@ type KartSnapshot = {
   y: number
   angle: number
   speedRatio: number
-}
-
-type CpuSnapshot = {
-  id: string
-  x: number
-  y: number
-  angle: number
-  speedRatio: number
-  steering: number
 }
 
 type NetworkItemType =
@@ -66,14 +60,44 @@ const ITEM_TYPES = new Set<NetworkItemType>([
   'star',
 ])
 
+const TRACK_PATH = path.resolve(process.cwd(), 'public/assets/tracks/Mario Circuit 1.png')
+const COLLISION_PATH = path.resolve(
+  process.cwd(),
+  'public/assets/tracks/Mario Circuit 1 - Collision.png',
+)
+const track = await ServerTrackMap.load(TRACK_PATH, COLLISION_PATH)
+const WORLD_SCALE = Math.min(track.width, track.height)
+const START_X = track.width * 0.91
+const START_Y = track.height * 0.66 - WORLD_SCALE * 0.1
+const START_HEADING = 0
+const CPU_BROADCAST_INTERVAL_MS = 50
+
+console.log(`[retro_kart] server track loaded (${track.width}x${track.height})`)
+
 class RetroKartRoom extends Room {
   maxClients = 21
   private readonly players = new Map<string, KartSnapshot>()
-  private simulationHostId?: string
-  private latestCpuSnapshots: CpuSnapshot[] = []
+  private readonly cpuSimulation = new ServerCpuSimulation(
+    track,
+    START_X,
+    START_Y,
+    START_HEADING,
+  )
+  private cpuBroadcastAccumulator = 0
   private nextItemEventId = 1
 
   onCreate() {
+    this.setTimestep((deltaTime) => {
+      const deltaSeconds = Math.min(deltaTime / 1000, 0.05)
+      this.cpuSimulation.update(deltaSeconds)
+      this.cpuBroadcastAccumulator += deltaTime
+
+      if (this.cpuBroadcastAccumulator >= CPU_BROADCAST_INTERVAL_MS) {
+        this.cpuBroadcastAccumulator %= CPU_BROADCAST_INTERVAL_MS
+        this.broadcast('cpus', this.cpuSimulation.snapshots)
+      }
+    })
+
     this.onMessage('kart', (client, payload: Partial<KartSnapshot>) => {
       const player = this.players.get(client.sessionId)
       if (!player) return
@@ -81,29 +105,9 @@ class RetroKartRoom extends Room {
       if (Number.isFinite(payload.x)) player.x = Number(payload.x)
       if (Number.isFinite(payload.y)) player.y = Number(payload.y)
       if (Number.isFinite(payload.angle)) player.angle = Number(payload.angle)
-      if (Number.isFinite(payload.speedRatio)) {
-        player.speedRatio = Number(payload.speedRatio)
-      }
+      if (Number.isFinite(payload.speedRatio)) player.speedRatio = Number(payload.speedRatio)
 
       this.broadcast('kart', player, { except: client })
-    })
-
-    this.onMessage('cpus', (client, payload: CpuSnapshot[]) => {
-      if (client.sessionId !== this.simulationHostId || !Array.isArray(payload)) return
-
-      this.latestCpuSnapshots = payload
-        .slice(0, 20)
-        .filter((cpu) => cpu && typeof cpu.id === 'string')
-        .map((cpu) => ({
-          id: cpu.id,
-          x: Number(cpu.x) || 0,
-          y: Number(cpu.y) || 0,
-          angle: Number(cpu.angle) || 0,
-          speedRatio: Number(cpu.speedRatio) || 0,
-          steering: Number(cpu.steering) || 0,
-        }))
-
-      this.broadcast('cpus', this.latestCpuSnapshots, { except: client })
     })
 
     this.onMessage('item-use', (client, payload: ItemUsePayload) => {
@@ -140,30 +144,18 @@ class RetroKartRoom extends Room {
     }
 
     client.send('players', [...this.players.values()])
+    client.send('cpus', this.cpuSimulation.snapshots)
     this.players.set(client.sessionId, player)
     this.broadcast('player-joined', player, { except: client })
 
-    if (!this.simulationHostId) this.simulationHostId = client.sessionId
-    this.broadcast('simulation-host', { id: this.simulationHostId })
-    if (this.latestCpuSnapshots.length > 0) client.send('cpus', this.latestCpuSnapshots)
-
     console.log(
-      `[retro_kart] ${client.sessionId} joined (${this.clients.length}/${this.maxClients})` +
-        (client.sessionId === this.simulationHostId ? ' [simulation host]' : ''),
+      `[retro_kart] ${client.sessionId} joined (${this.clients.length}/${this.maxClients}) [CPU server]`,
     )
   }
 
   onLeave(client: Client) {
     this.players.delete(client.sessionId)
     this.broadcast('player-left', { id: client.sessionId })
-
-    if (client.sessionId === this.simulationHostId) {
-      const nextHost = this.clients.find((candidate) => candidate.sessionId !== client.sessionId)
-      this.simulationHostId = nextHost?.sessionId
-      this.broadcast('simulation-host', { id: this.simulationHostId ?? null })
-      console.log(`[retro_kart] simulation host -> ${this.simulationHostId ?? 'none'}`)
-    }
-
     console.log(`[retro_kart] ${client.sessionId} left (${this.clients.length}/${this.maxClients})`)
   }
 }
