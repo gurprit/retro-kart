@@ -112,8 +112,7 @@ class RetroKartRoom extends Room {
     () => this.getHumanItemTargets(),
   )
   private readonly coinSimulation = new ServerCoinSimulation(
-    track.width,
-    track.height,
+    track,
     this.cpuSimulation,
     () => this.getHumanCoinTargets(),
   )
