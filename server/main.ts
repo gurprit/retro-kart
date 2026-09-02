@@ -187,8 +187,12 @@ class RetroKartRoom extends Room {
           ownerId: client.sessionId,
           durationSeconds: STAR_DURATION_MS / 1000,
         })
-      } else if (event.item === 'egg') {
+      } else if (event.item === 'fireball') {
         this.activateLightning(client.sessionId)
+      } else if (event.item === 'egg') {
+        this.broadcast('feather-activated', {
+          ownerId: client.sessionId,
+        })
       } else if (WORLD_ITEM_TYPES.has(event.item as ServerWorldItemKind)) {
         const spawned = this.itemSimulation.spawn(
           event.id,
@@ -203,9 +207,9 @@ class RetroKartRoom extends Room {
         this.broadcast('item-use', event, { except: client })
       }
 
-      console.log(
-        `[retro_kart] ${client.sessionId} used ${event.item === 'egg' ? 'lightning' : event.item} (${event.id})`,
-      )
+      const itemLabel =
+        event.item === 'egg' ? 'feather' : event.item === 'fireball' ? 'lightning' : event.item
+      console.log(`[retro_kart] ${client.sessionId} used ${itemLabel} (${event.id})`)
     })
   }
 
