@@ -7,7 +7,7 @@ import {
   type HumanItemTarget,
   type ServerWorldItemKind,
 } from './ServerItemSimulation'
-import { ServerTrackMap } from './ServerTrackMap'
+import { loadServerTrackMap } from './loadServerTrackMap'
 
 type KartSnapshot = {
   id: string
@@ -79,7 +79,7 @@ const COLLISION_PATH = path.resolve(
   process.cwd(),
   'public/assets/tracks/Mario Circuit 1 - Collision.png',
 )
-const track = await ServerTrackMap.load(TRACK_PATH, COLLISION_PATH)
+const track = await loadServerTrackMap(TRACK_PATH, COLLISION_PATH)
 const WORLD_SCALE = Math.min(track.width, track.height)
 const START_X = track.width * 0.91
 const START_Y = track.height * 0.66 - WORLD_SCALE * 0.1
