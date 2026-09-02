@@ -83,6 +83,15 @@ export class ServerCpuSimulation {
     }))
   }
 
+  get itemStates() {
+    return this.racers.map(({ id, kart }) => ({
+      id,
+      x: kart.x,
+      y: kart.y,
+      invulnerable: kart.isInvulnerable,
+    }))
+  }
+
   spinOut(
     racerId: string,
     blastX: number,
