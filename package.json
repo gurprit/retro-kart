@@ -7,6 +7,8 @@
     "dev": "vite",
     "dev:host": "vite --host 0.0.0.0",
     "server": "tsx watch server/main.ts",
+    "cloudflare:dev": "npx wrangler@latest dev --config cloudflare/wrangler.toml",
+    "cloudflare:deploy": "npx wrangler@latest deploy --config cloudflare/wrangler.toml",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
