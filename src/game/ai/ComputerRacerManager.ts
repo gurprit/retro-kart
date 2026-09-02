@@ -27,6 +27,7 @@ export type CpuRacerSnapshot = {
   angle: number
   speedRatio: number
   steering: number
+  shrunken?: boolean
 }
 
 type CpuRacer = {
@@ -43,6 +44,7 @@ type CpuRacer = {
   recoveryForwardTimer: number
   recoverySteering: number
   stuckTimer: number
+  shrunken: boolean
 }
 
 export class ComputerRacerManager {
@@ -101,6 +103,7 @@ export class ComputerRacerManager {
         recoveryForwardTimer: 0,
         recoverySteering: 0,
         stuckTimer: 0,
+        shrunken: false,
       })
     }
   }
@@ -136,6 +139,7 @@ export class ComputerRacerManager {
         while (angleDifference < -Math.PI) angleDifference += Math.PI * 2
         racer.kart.angle += angleDifference * amount
         racer.steering = Phaser.Math.Linear(racer.steering, snapshot.steering, amount)
+        racer.shrunken = Boolean(snapshot.shrunken)
       }
 
       this.updateSprite(racer, camera)
@@ -148,13 +152,14 @@ export class ComputerRacerManager {
   }
 
   get snapshots(): CpuRacerSnapshot[] {
-    return this.racers.map(({ id, kart, steering }) => ({
+    return this.racers.map(({ id, kart, steering, shrunken }) => ({
       id,
       x: kart.x,
       y: kart.y,
       angle: kart.angle,
       speedRatio: kart.speedRatio,
       steering,
+      shrunken,
     }))
   }
 
@@ -391,7 +396,12 @@ export class ComputerRacerManager {
       return
     }
 
-    const size = Phaser.Math.Clamp(BASE_SPRITE_HEIGHT * projected.scale, 10, 96)
+    const shrinkMultiplier = racer.shrunken ? 0.5 : 1
+    const size = Phaser.Math.Clamp(
+      BASE_SPRITE_HEIGHT * projected.scale * shrinkMultiplier,
+      5,
+      96,
+    )
     const steeringMagnitude = Math.abs(racer.steering)
     const frameIndex =
       steeringMagnitude > 0.72
