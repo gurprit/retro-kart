@@ -47,6 +47,7 @@ export class RacerSpriteView {
   private starHue = 0
   private starParticleTimer = 0
   private featherJumpTimer = 0
+  private shrinkTimer = 0
 
   constructor(
     scene: Phaser.Scene,
@@ -84,6 +85,7 @@ export class RacerSpriteView {
   ) {
     const clampedSteer = Phaser.Math.Clamp(steerDirection, -1, 1)
     const clampedSpeed = Phaser.Math.Clamp(Math.abs(speedRatio), 0, 1)
+    this.shrinkTimer = Math.max(0, this.shrinkTimer - deltaSeconds)
 
     if (this.spinTimer > 0 && this.frames.length > 1) {
       this.updateSpin(deltaSeconds)
@@ -109,11 +111,12 @@ export class RacerSpriteView {
       this.bouncePhase = 0
     }
 
+    const size = TARGET_HEIGHT * (this.shrinkTimer > 0 ? 0.5 : 1)
     this.sprite
       .setX(this.baseX)
       .setY(this.baseY - bounceOffset)
       .setRotation(0)
-      .setDisplaySize(TARGET_HEIGHT, TARGET_HEIGHT)
+      .setDisplaySize(size, size)
 
     this.updateStarEffect(deltaSeconds, clampedSpeed)
   }
@@ -123,6 +126,10 @@ export class RacerSpriteView {
     this.spinFrameIndex = 0
     this.spinFrameTimer = 0
     this.spinTimer = this.frames.length * SPIN_FRAME_TIME * Math.max(1, loops)
+  }
+
+  applyLightningShrink(durationSeconds: number) {
+    this.shrinkTimer = Math.max(this.shrinkTimer, durationSeconds)
   }
 
   get isSpinning() {
