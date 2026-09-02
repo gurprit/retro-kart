@@ -1,6 +1,11 @@
 import path from 'node:path'
 import { defineRoom, defineServer, Room, type Client } from 'colyseus'
 import { ServerCpuSimulation } from './ServerCpuSimulation'
+import {
+  ServerItemSimulation,
+  type HumanItemTarget,
+  type ServerWorldItemKind,
+} from './ServerItemSimulation'
 import { ServerTrackMap } from './ServerTrackMap'
 
 type KartSnapshot = {
@@ -60,6 +65,14 @@ const ITEM_TYPES = new Set<NetworkItemType>([
   'star',
 ])
 
+const WORLD_ITEM_TYPES = new Set<ServerWorldItemKind>([
+  'banana',
+  'bomb',
+  'fireball',
+  'greenShell',
+  'redShell',
+])
+
 const TRACK_PATH = path.resolve(process.cwd(), 'public/assets/tracks/Mario Circuit 1.png')
 const COLLISION_PATH = path.resolve(
   process.cwd(),
@@ -70,31 +83,51 @@ const WORLD_SCALE = Math.min(track.width, track.height)
 const START_X = track.width * 0.91
 const START_Y = track.height * 0.66 - WORLD_SCALE * 0.1
 const START_HEADING = 0
-const CPU_BROADCAST_INTERVAL_MS = 50
+const SERVER_BROADCAST_INTERVAL_MS = 50
+const STAR_DURATION_MS = 6000
 
 console.log(`[retro_kart] server track loaded (${track.width}x${track.height})`)
 
 class RetroKartRoom extends Room {
   maxClients = 21
   private readonly players = new Map<string, KartSnapshot>()
+  private readonly playerStarUntil = new Map<string, number>()
   private readonly cpuSimulation = new ServerCpuSimulation(
     track,
     START_X,
     START_Y,
     START_HEADING,
   )
-  private cpuBroadcastAccumulator = 0
+  private readonly itemSimulation = new ServerItemSimulation(
+    track,
+    this.cpuSimulation,
+    () => this.getHumanItemTargets(),
+  )
+  private broadcastAccumulator = 0
   private nextItemEventId = 1
 
   onCreate() {
     this.setTimestep((deltaTime) => {
       const deltaSeconds = Math.min(deltaTime / 1000, 0.05)
       this.cpuSimulation.update(deltaSeconds)
-      this.cpuBroadcastAccumulator += deltaTime
+      this.itemSimulation.update(deltaSeconds)
 
-      if (this.cpuBroadcastAccumulator >= CPU_BROADCAST_INTERVAL_MS) {
-        this.cpuBroadcastAccumulator %= CPU_BROADCAST_INTERVAL_MS
+      for (const hit of this.itemSimulation.consumeHits()) {
+        this.broadcast('item-hit', hit)
+        console.log(
+          `[retro_kart] ${hit.itemId} hit ${hit.targetType} ${hit.targetId}`,
+        )
+      }
+
+      for (const explosion of this.itemSimulation.consumeExplosions()) {
+        this.broadcast('item-explosion', explosion)
+      }
+
+      this.broadcastAccumulator += deltaTime
+      if (this.broadcastAccumulator >= SERVER_BROADCAST_INTERVAL_MS) {
+        this.broadcastAccumulator %= SERVER_BROADCAST_INTERVAL_MS
         this.broadcast('cpus', this.cpuSimulation.snapshots)
+        this.broadcast('items', this.itemSimulation.snapshots)
       }
     })
 
@@ -128,7 +161,24 @@ class RetroKartRoom extends Room {
           : player.speedRatio,
       }
 
-      this.broadcast('item-use', event, { except: client })
+      if (event.item === 'star') {
+        this.playerStarUntil.set(client.sessionId, Date.now() + STAR_DURATION_MS)
+      }
+
+      if (WORLD_ITEM_TYPES.has(event.item as ServerWorldItemKind)) {
+        const spawned = this.itemSimulation.spawn(
+          event.id,
+          event.ownerId,
+          event.item as ServerWorldItemKind,
+          event.x,
+          event.y,
+          event.angle,
+        )
+        if (spawned) this.broadcast('item-spawn', spawned)
+      } else {
+        this.broadcast('item-use', event, { except: client })
+      }
+
       console.log(`[retro_kart] ${client.sessionId} used ${event.item} (${event.id})`)
     })
   }
@@ -145,18 +195,30 @@ class RetroKartRoom extends Room {
 
     client.send('players', [...this.players.values()])
     client.send('cpus', this.cpuSimulation.snapshots)
+    client.send('items', this.itemSimulation.snapshots)
     this.players.set(client.sessionId, player)
     this.broadcast('player-joined', player, { except: client })
 
     console.log(
-      `[retro_kart] ${client.sessionId} joined (${this.clients.length}/${this.maxClients}) [CPU server]`,
+      `[retro_kart] ${client.sessionId} joined (${this.clients.length}/${this.maxClients}) [CPU+ITEM server]`,
     )
   }
 
   onLeave(client: Client) {
     this.players.delete(client.sessionId)
+    this.playerStarUntil.delete(client.sessionId)
     this.broadcast('player-left', { id: client.sessionId })
     console.log(`[retro_kart] ${client.sessionId} left (${this.clients.length}/${this.maxClients})`)
+  }
+
+  private getHumanItemTargets(): HumanItemTarget[] {
+    const now = Date.now()
+    return [...this.players.values()].map((player) => ({
+      id: player.id,
+      x: player.x,
+      y: player.y,
+      invulnerable: (this.playerStarUntil.get(player.id) ?? 0) > now,
+    }))
   }
 }
 
