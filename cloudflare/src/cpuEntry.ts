@@ -1,5 +1,6 @@
 import worker, { RaceRoom as BaseRaceRoom } from './index'
 import { CpuItemDirector } from './CpuItemDirector'
+import { TRACK_HEIGHT, TRACK_WIDTH } from './generatedTrackData'
 
 // Keep the proven room transport/simulation intact and layer CPU item behaviour on
 // top. BaseRaceRoom's methods are ordinary JavaScript methods at runtime, so using
@@ -17,6 +18,7 @@ export default {
         transport: 'cloudflare-durable-objects',
         simulation: 'cpu+cpu-items+items+coins',
         cpuItems: true,
+        track: `${TRACK_WIDTH}x${TRACK_HEIGHT}`,
       }), {
         headers: {
           'content-type': 'application/json; charset=utf-8',
@@ -35,16 +37,10 @@ export class RaceRoom extends RoomBase {
   constructor(state: any) {
     super(state)
     const room = this as any
-    const track = room.cpuSimulation?.track ?? undefined
-
-    // ServerCpuSimulation keeps its track private, so dimensions are taken from
-    // the same generated track constants exposed by the active simulations.
-    const width = room.coinSimulation?.track?.width ?? 1026
-    const height = room.coinSimulation?.track?.height ?? 1028
 
     this.cpuItemDirector = new CpuItemDirector(
-      width,
-      height,
+      TRACK_WIDTH,
+      TRACK_HEIGHT,
       room.cpuSimulation,
       room.itemSimulation,
       {
@@ -55,8 +51,6 @@ export class RaceRoom extends RoomBase {
           room.applyStarContact(ownerId, blastX, blastY, targetId, targetType, now),
       },
     )
-
-    void track
   }
 
   tick() {
