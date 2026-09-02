@@ -173,6 +173,14 @@ export class PlayerKart {
     this.state = 'hit'
   }
 
+  applyLightningHit(controlLockSeconds: number) {
+    if (this.isInvulnerable) return
+    this.speed *= 0.5
+    this.controlLockTimer = Math.max(this.controlLockTimer, controlLockSeconds)
+    this.hitTimer = Math.max(this.hitTimer, controlLockSeconds)
+    this.state = 'hit'
+  }
+
   applyBoost(multiplier: number, durationSeconds: number) {
     this.boostMultiplier = Math.max(this.boostMultiplier, multiplier)
     this.boostTimer = Math.max(this.boostTimer, durationSeconds)
