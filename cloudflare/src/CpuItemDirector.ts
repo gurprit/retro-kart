@@ -59,11 +59,40 @@ export type CpuItemDirectorCallbacks = {
 }
 
 const ITEM_BOX_RATIOS = [
-  { id: 'mc1-1', xRatio: 0.83, yRatio: 0.5 },
-  { id: 'mc1-2', xRatio: 0.87, yRatio: 0.5 },
-  { id: 'mc1-3', xRatio: 0.91, yRatio: 0.5 },
-  { id: 'mc1-4', xRatio: 0.95, yRatio: 0.5 },
-  { id: 'mc1-5', xRatio: 0.99, yRatio: 0.5 },
+  // Upper-right straight / first corner.
+  { id: 'mc1-1', xRatio: 0.83, yRatio: 0.50 },
+  { id: 'mc1-2', xRatio: 0.87, yRatio: 0.50 },
+  { id: 'mc1-3', xRatio: 0.91, yRatio: 0.50 },
+  { id: 'mc1-4', xRatio: 0.95, yRatio: 0.50 },
+  { id: 'mc1-5', xRatio: 0.99, yRatio: 0.50 },
+
+  // Top section.
+  { id: 'mc1-6', xRatio: 0.68, yRatio: 0.445 },
+  { id: 'mc1-7', xRatio: 0.64, yRatio: 0.435 },
+  { id: 'mc1-8', xRatio: 0.60, yRatio: 0.425 },
+  { id: 'mc1-9', xRatio: 0.56, yRatio: 0.420 },
+  { id: 'mc1-10', xRatio: 0.52, yRatio: 0.420 },
+
+  // Left-hand section.
+  { id: 'mc1-11', xRatio: 0.405, yRatio: 0.465 },
+  { id: 'mc1-12', xRatio: 0.370, yRatio: 0.490 },
+  { id: 'mc1-13', xRatio: 0.340, yRatio: 0.520 },
+  { id: 'mc1-14', xRatio: 0.315, yRatio: 0.555 },
+  { id: 'mc1-15', xRatio: 0.305, yRatio: 0.590 },
+
+  // Bottom-left / bottom section.
+  { id: 'mc1-16', xRatio: 0.405, yRatio: 0.655 },
+  { id: 'mc1-17', xRatio: 0.455, yRatio: 0.675 },
+  { id: 'mc1-18', xRatio: 0.510, yRatio: 0.682 },
+  { id: 'mc1-19', xRatio: 0.565, yRatio: 0.684 },
+  { id: 'mc1-20', xRatio: 0.620, yRatio: 0.680 },
+
+  // Bottom-right approach back toward the start straight.
+  { id: 'mc1-21', xRatio: 0.685, yRatio: 0.675 },
+  { id: 'mc1-22', xRatio: 0.735, yRatio: 0.665 },
+  { id: 'mc1-23', xRatio: 0.785, yRatio: 0.650 },
+  { id: 'mc1-24', xRatio: 0.835, yRatio: 0.625 },
+  { id: 'mc1-25', xRatio: 0.875, yRatio: 0.590 },
 ] as const
 
 const ITEM_POOL: CpuItemType[] = [
