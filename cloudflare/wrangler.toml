@@ -1,5 +1,5 @@
 name = "retro-kart-multiplayer"
-main = "src/index.ts"
+main = "src/cpuEntry.ts"
 compatibility_date = "2026-09-01"
 
 [observability]
