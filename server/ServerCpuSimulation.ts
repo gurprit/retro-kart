@@ -23,6 +23,7 @@ type CpuRacer = {
   recoveryForwardTimer: number
   recoverySteering: number
   stuckTimer: number
+  shrinkTimer: number
 }
 
 export class ServerCpuSimulation {
@@ -64,22 +65,27 @@ export class ServerCpuSimulation {
         recoveryForwardTimer: 0,
         recoverySteering: 0,
         stuckTimer: 0,
+        shrinkTimer: 0,
       })
     }
   }
 
   update(deltaSeconds: number) {
-    for (const racer of this.racers) this.updateDriver(racer, deltaSeconds)
+    for (const racer of this.racers) {
+      racer.shrinkTimer = Math.max(0, racer.shrinkTimer - deltaSeconds)
+      this.updateDriver(racer, deltaSeconds)
+    }
   }
 
   get snapshots(): CpuRacerSnapshot[] {
-    return this.racers.map(({ id, kart, steering }) => ({
+    return this.racers.map(({ id, kart, steering, shrinkTimer }) => ({
       id,
       x: kart.x,
       y: kart.y,
       angle: kart.angle,
       speedRatio: kart.speedRatio,
       steering,
+      shrunken: shrinkTimer > 0,
     }))
   }
 
@@ -105,6 +111,14 @@ export class ServerCpuSimulation {
       pushStrength,
       controlLockSeconds,
     )
+  }
+
+  applyLightning(durationSeconds: number, controlLockSeconds: number) {
+    for (const racer of this.racers) {
+      if (racer.kart.isInvulnerable) continue
+      racer.kart.applyLightningHit(controlLockSeconds)
+      racer.shrinkTimer = Math.max(racer.shrinkTimer, durationSeconds)
+    }
   }
 
   boost(racerId: string, multiplier: number, durationSeconds: number) {
