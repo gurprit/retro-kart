@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Generated Cloudflare multiplayer data
+cloudflare/src/generatedTrackData.ts
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
