@@ -1,0 +1,14 @@
+name = "retro-kart-multiplayer"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "RACE_ROOMS"
+class_name = "RaceRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RaceRoom"]
