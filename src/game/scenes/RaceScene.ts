@@ -54,8 +54,8 @@ const ITEM_ASSETS = [
 ] as const
 
 const START_GRID = {
-  xRatio: 0.91,
-  yRatio: 0.66,
+  xRatio: 0.5,
+  yRatio: 0.55,
   heading: 0,
 } as const
 
@@ -106,8 +106,8 @@ export class RaceScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image(TRACK_TEXTURE_KEY, '/assets/tracks/Mario Circuit 1.png')
-    this.load.image(COLLISION_TEXTURE_KEY, '/assets/tracks/Mario Circuit 1 - Collision.png')
+    this.load.image(TRACK_TEXTURE_KEY, '/assets/tracks/Battle Course 1.png')
+    this.load.image(COLLISION_TEXTURE_KEY, '/assets/tracks/Battle Course 1 - Collision.png')
     this.load.image(OUTSIDE_GRASS_TEXTURE_KEY, '/assets/tilesets/Mario Circuit-grass.png')
     this.load.image(FAR_BACKGROUND_TEXTURE_KEY, '/assets/backgrounds/Mario Circuit 1 - Far Background.png')
     this.load.image(NEAR_BACKGROUND_TEXTURE_KEY, '/assets/backgrounds/Mario Circuit 1 - Near Background.png')
@@ -471,7 +471,7 @@ export class RaceScene extends Phaser.Scene {
   }
 
   private createHud() {
-    this.add.text(20, 18, 'RETRO KART // MULTIPLAYER TEST', {
+    this.add.text(20, 18, 'RETRO KART // BATTLE COURSE 1', {
       fontFamily: 'monospace', fontSize: '20px', color: '#ffffff',
       stroke: '#000000', strokeThickness: 4,
     }).setDepth(30)
