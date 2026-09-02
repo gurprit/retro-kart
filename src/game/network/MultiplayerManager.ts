@@ -30,39 +30,53 @@ type RemoteRacer = {
   target: KartSnapshot
   sprite: Phaser.GameObjects.Image
   frameKeys: string[]
+  spinTimer: number
 }
 
-type NetworkItemUse = {
+type NetworkWorldItemKind =
+  | 'banana'
+  | 'bomb'
+  | 'fireball'
+  | 'greenShell'
+  | 'redShell'
+
+type NetworkWorldItemSnapshot = {
   id: string
+  item: NetworkWorldItemKind
   ownerId: string
-  item: ItemType
-  x: number
-  y: number
-  angle: number
-  speedRatio: number
-}
-
-type NetworkWorldItem = {
-  id: string
-  item: 'banana' | 'bomb' | 'fireball' | 'greenShell' | 'redShell'
   x: number
   y: number
   vx: number
   vy: number
   ttl: number
   age: number
+}
+
+type NetworkWorldItem = {
+  snapshot: NetworkWorldItemSnapshot
+  target: NetworkWorldItemSnapshot
   image: Phaser.GameObjects.Image
   frameKeys: string[]
   animationFps: number
 }
 
-const WORLD_ITEM_TYPES = new Set<ItemType>([
-  'banana',
-  'bomb',
-  'fireball',
-  'greenShell',
-  'redShell',
-])
+export type NetworkItemHit = {
+  itemId: string
+  item: NetworkWorldItemKind
+  ownerId: string
+  targetId: string
+  targetType: 'human' | 'cpu'
+  blastX: number
+  blastY: number
+  pushStrength: number
+  controlLockSeconds: number
+}
+
+type NetworkItemExplosion = {
+  itemId: string
+  x: number
+  y: number
+}
 
 export class MultiplayerManager {
   private readonly scene: Phaser.Scene
@@ -70,6 +84,7 @@ export class MultiplayerManager {
   private readonly profilesByKey: Map<string, RacerProfile>
   private readonly remoteRacers = new Map<string, RemoteRacer>()
   private readonly networkItems = new Map<string, NetworkWorldItem>()
+  private readonly localHitQueue: NetworkItemHit[] = []
   private room?: Room
   private sendAccumulator = 0
   private connected = false
@@ -127,13 +142,24 @@ export class MultiplayerManager {
         if (!Array.isArray(snapshots)) return
         this.latestCpuSnapshots = snapshots.map((snapshot) => ({ ...snapshot }))
       })
-      room.onMessage('item-use', (event: NetworkItemUse) => {
-        this.spawnNetworkItem(event)
+      room.onMessage('item-spawn', (snapshot: NetworkWorldItemSnapshot) => {
+        this.upsertNetworkItem(snapshot)
+      })
+      room.onMessage('items', (snapshots: NetworkWorldItemSnapshot[]) => {
+        if (!Array.isArray(snapshots)) return
+        this.reconcileNetworkItems(snapshots)
+      })
+      room.onMessage('item-hit', (hit: NetworkItemHit) => {
+        this.receiveItemHit(hit)
+      })
+      room.onMessage('item-explosion', (explosion: NetworkItemExplosion) => {
+        this.createNetworkExplosion(explosion.x, explosion.y)
       })
       room.onLeave(() => {
         this.connected = false
         this.room = undefined
         this.latestCpuSnapshots = []
+        this.localHitQueue.length = 0
         this.clearRemotes()
         this.clearNetworkItems()
       })
@@ -141,7 +167,9 @@ export class MultiplayerManager {
         console.warn('[multiplayer] room error', code, message)
       })
 
-      console.log(`[multiplayer] joined ${room.roomId} as ${room.sessionId}; CPUs are server-owned`)
+      console.log(
+        `[multiplayer] joined ${room.roomId} as ${room.sessionId}; CPUs/items are server-owned`,
+      )
     } catch (error) {
       console.warn('[multiplayer] server unavailable; continuing offline', error)
     }
@@ -161,6 +189,7 @@ export class MultiplayerManager {
     }
 
     for (const remote of this.remoteRacers.values()) {
+      remote.spinTimer = Math.max(0, remote.spinTimer - deltaSeconds)
       this.interpolateRemote(remote, deltaSeconds)
       this.updateRemoteSprite(remote, camera)
     }
@@ -179,12 +208,18 @@ export class MultiplayerManager {
     })
   }
 
+  consumeLocalHits() {
+    if (this.localHitQueue.length === 0) return []
+    return this.localHitQueue.splice(0, this.localHitQueue.length)
+  }
+
   destroy() {
     this.destroyed = true
     this.connected = false
     const room = this.room
     this.room = undefined
     this.latestCpuSnapshots = []
+    this.localHitQueue.length = 0
     if (room) void room.leave()
     this.clearRemotes()
     this.clearNetworkItems()
@@ -192,6 +227,10 @@ export class MultiplayerManager {
 
   get remoteCount() {
     return this.remoteRacers.size
+  }
+
+  get isConnected() {
+    return this.connected
   }
 
   get shouldSimulateCpus() {
@@ -206,95 +245,51 @@ export class MultiplayerManager {
     return this.latestCpuSnapshots
   }
 
-  private spawnNetworkItem(event: NetworkItemUse) {
-    if (!event?.id || !WORLD_ITEM_TYPES.has(event.item)) return
-    if (this.networkItems.has(event.id)) return
+  private receiveItemHit(hit: NetworkItemHit) {
+    if (!hit?.targetId) return
 
-    const worldScale = Math.min(this.renderer.sourceWidth, this.renderer.sourceHeight)
-    const forwardX = Math.sin(event.angle)
-    const forwardY = -Math.cos(event.angle)
-    let x = event.x
-    let y = event.y
-    let vx = 0
-    let vy = 0
-    let ttl = 1
-    let frameKeys: string[] = []
-    let animationFps = 0
-
-    switch (event.item) {
-      case 'banana': {
-        const distance = worldScale * 0.026
-        x += forwardX * distance
-        y += forwardY * distance
-        ttl = 14
-        frameKeys = ['retro-kart-banana-world-frame']
-        break
-      }
-      case 'bomb': {
-        const distance = worldScale * 0.055
-        const speed = worldScale * 0.24
-        x += forwardX * distance
-        y += forwardY * distance
-        vx = forwardX * speed
-        vy = forwardY * speed
-        ttl = 1.15
-        frameKeys = ['retro-kart-bomb-frame-0']
-        break
-      }
-      case 'greenShell': {
-        const distance = worldScale * 0.055
-        const speed = worldScale * 0.62
-        x += forwardX * distance
-        y += forwardY * distance
-        vx = forwardX * speed
-        vy = forwardY * speed
-        ttl = 7
-        frameKeys = [
-          'retro-kart-greenShell-frame-0',
-          'retro-kart-greenShell-frame-1',
-          'retro-kart-greenShell-frame-2',
-        ]
-        animationFps = 12
-        break
-      }
-      case 'redShell': {
-        const distance = worldScale * 0.055
-        const speed = worldScale * 0.62 * 0.93
-        x += forwardX * distance
-        y += forwardY * distance
-        vx = forwardX * speed
-        vy = forwardY * speed
-        ttl = 7
-        frameKeys = ['retro-kart-redShell-frame-0']
-        break
-      }
-      case 'fireball': {
-        const distance = worldScale * 0.055
-        const speed = worldScale * 0.68
-        x += forwardX * distance
-        y += forwardY * distance
-        vx = forwardX * speed
-        vy = forwardY * speed
-        ttl = 4
-        frameKeys = [
-          'retro-kart-fireball-frame-0',
-          'retro-kart-fireball-frame-1',
-          'retro-kart-fireball-frame-2',
-          'retro-kart-fireball-frame-3',
-          'retro-kart-fireball-frame-4',
-        ]
-        animationFps = 15
-        break
-      }
-      default:
-        return
-    }
-
-    const textureKey = frameKeys.find((key) => this.scene.textures.exists(key))
-    if (!textureKey) {
-      console.warn('[multiplayer] item texture not ready', event.item)
+    if (hit.targetId === this.room?.sessionId && hit.targetType === 'human') {
+      this.localHitQueue.push({ ...hit })
       return
     }
+
+    if (hit.targetType === 'human') {
+      const remote = this.remoteRacers.get(hit.targetId)
+      if (remote) remote.spinTimer = Math.max(remote.spinTimer, hit.controlLockSeconds)
+    }
+  }
+
+  private reconcileNetworkItems(snapshots: NetworkWorldItemSnapshot[]) {
+    const present = new Set<string>()
+    for (const snapshot of snapshots) {
+      present.add(snapshot.id)
+      this.upsertNetworkItem(snapshot)
+    }
+
+    for (const [id, item] of this.networkItems) {
+      if (present.has(id)) continue
+      item.image.destroy()
+      this.networkItems.delete(id)
+    }
+  }
+
+  private upsertNetworkItem(incoming: NetworkWorldItemSnapshot) {
+    if (!incoming?.id) return
+
+    // The firing client already renders its own locally-simulated item. Other
+    // clients render the authoritative server copy, avoiding a doubled sprite
+    // while we preserve the existing offline ItemSystem behaviour.
+    if (incoming.ownerId === this.room?.sessionId) return
+
+    const existing = this.networkItems.get(incoming.id)
+    if (existing) {
+      existing.target = { ...incoming }
+      return
+    }
+
+    const { frameKeys, animationFps } = this.getItemFrames(incoming.item)
+    const textureKey = frameKeys.find((key) => this.scene.textures.exists(key))
+    if (!textureKey) return
 
     const image = this.scene.add
       .image(-1000, -1000, textureKey)
@@ -302,60 +297,79 @@ export class MultiplayerManager {
       .setVisible(false)
       .setDepth(14)
 
-    this.networkItems.set(event.id, {
-      id: event.id,
-      item: event.item,
-      x,
-      y,
-      vx,
-      vy,
-      ttl,
-      age: 0,
+    this.networkItems.set(incoming.id, {
+      snapshot: { ...incoming },
+      target: { ...incoming },
       image,
       frameKeys: frameKeys.filter((key) => this.scene.textures.exists(key)),
       animationFps,
     })
   }
 
+  private getItemFrames(item: NetworkWorldItemKind) {
+    switch (item) {
+      case 'banana':
+        return { frameKeys: ['retro-kart-banana-world-frame'], animationFps: 0 }
+      case 'bomb':
+        return { frameKeys: ['retro-kart-bomb-frame-0'], animationFps: 0 }
+      case 'greenShell':
+        return {
+          frameKeys: [
+            'retro-kart-greenShell-frame-0',
+            'retro-kart-greenShell-frame-1',
+            'retro-kart-greenShell-frame-2',
+          ],
+          animationFps: 12,
+        }
+      case 'redShell':
+        return { frameKeys: ['retro-kart-redShell-frame-0'], animationFps: 0 }
+      case 'fireball':
+        return {
+          frameKeys: [
+            'retro-kart-fireball-frame-0',
+            'retro-kart-fireball-frame-1',
+            'retro-kart-fireball-frame-2',
+            'retro-kart-fireball-frame-3',
+            'retro-kart-fireball-frame-4',
+          ],
+          animationFps: 15,
+        }
+    }
+  }
+
   private updateNetworkItems(deltaSeconds: number, camera: Mode7CameraState) {
-    for (const [id, item] of this.networkItems) {
-      item.age += deltaSeconds
-      item.ttl -= deltaSeconds
+    const amount = 1 - Math.exp(-18 * deltaSeconds)
 
-      if (item.item === 'bomb') {
-        item.x += item.vx * deltaSeconds
-        item.y += item.vy * deltaSeconds
-        item.vx *= Math.pow(0.06, deltaSeconds)
-        item.vy *= Math.pow(0.06, deltaSeconds)
-      } else if (item.item !== 'banana') {
-        item.x += item.vx * deltaSeconds
-        item.y += item.vy * deltaSeconds
-      }
+    for (const item of this.networkItems.values()) {
+      item.snapshot.x = Phaser.Math.Linear(item.snapshot.x, item.target.x, amount)
+      item.snapshot.y = Phaser.Math.Linear(item.snapshot.y, item.target.y, amount)
+      item.snapshot.vx = Phaser.Math.Linear(item.snapshot.vx, item.target.vx, amount)
+      item.snapshot.vy = Phaser.Math.Linear(item.snapshot.vy, item.target.vy, amount)
+      item.snapshot.ttl = item.target.ttl
+      item.snapshot.age = item.target.age
 
-      if (item.ttl <= 0) {
-        if (item.item === 'bomb') this.createNetworkExplosion(item.x, item.y, camera)
-        item.image.destroy()
-        this.networkItems.delete(id)
-        continue
-      }
-
-      const projected = this.renderer.projectWorldPoint(item.x, item.y, camera)
+      const projected = this.renderer.projectWorldPoint(
+        item.snapshot.x,
+        item.snapshot.y,
+        camera,
+      )
       if (!projected) {
         item.image.setVisible(false)
         continue
       }
 
       if (item.frameKeys.length > 1 && item.animationFps > 0) {
-        const frameIndex = Math.floor(item.age * item.animationFps) % item.frameKeys.length
+        const frameIndex =
+          Math.floor(item.snapshot.age * item.animationFps) % item.frameKeys.length
         item.image.setTexture(item.frameKeys[frameIndex])
       }
 
       const scale = Phaser.Math.Clamp(projected.scale, 0.42, 1.75)
       const bob =
-        item.item === 'banana'
+        item.snapshot.item === 'banana'
           ? 0
-          : Math.sin(this.scene.time.now * 0.01 + item.age * 4) * 3
-      const sizeMultiplier = item.item === 'banana' ? 1.45 : 1
+          : Math.sin(this.scene.time.now * 0.01 + item.snapshot.age * 4) * 3
+      const sizeMultiplier = item.snapshot.item === 'banana' ? 1.45 : 1
 
       item.image
         .setVisible(true)
@@ -365,16 +379,23 @@ export class MultiplayerManager {
           NETWORK_ITEM_SIZE * scale * sizeMultiplier,
         )
         .setDepth(12 + projected.screenY * 0.01)
-        .setRotation(item.item === 'fireball' ? this.scene.time.now * 0.004 : 0)
+        .setRotation(item.snapshot.item === 'fireball' ? this.scene.time.now * 0.004 : 0)
     }
   }
 
-  private createNetworkExplosion(
-    worldX: number,
-    worldY: number,
-    camera: Mode7CameraState,
-  ) {
-    const projected = this.renderer.projectWorldPoint(worldX, worldY, camera)
+  private createNetworkExplosion(worldX: number, worldY: number) {
+    const camera = this.scene.cameras.main
+    void camera
+
+    // Projection uses the most recent RaceScene camera during the next update.
+    // Store a short-lived marker and render immediately from the currently
+    // visible world item location when possible.
+    const localCamera = (this.scene as Phaser.Scene & {
+      cameraState?: Mode7CameraState
+    }).cameraState
+    if (!localCamera) return
+
+    const projected = this.renderer.projectWorldPoint(worldX, worldY, localCamera)
     if (!projected) return
 
     const ring = this.scene.add
@@ -445,6 +466,7 @@ export class MultiplayerManager {
       target: { ...incoming },
       sprite,
       frameKeys,
+      spinTimer: 0,
     })
   }
 
@@ -504,6 +526,11 @@ export class MultiplayerManager {
       .setPosition(projected.x, projected.y)
       .setDisplaySize(size, size)
       .setDepth(13 + projected.screenY / 1000)
+      .setRotation(
+        remote.spinTimer > 0
+          ? this.scene.time.now * 0.018
+          : 0,
+      )
   }
 
   private createFrames(textureKey: string) {
