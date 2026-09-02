@@ -389,6 +389,16 @@ export class RaceScene extends Phaser.Scene {
       this.cameraState,
     )
 
+    for (const hit of this.multiplayer?.consumeLocalHits() ?? []) {
+      this.playerKart.applySpinOut(
+        hit.blastX,
+        hit.blastY,
+        hit.pushStrength,
+        hit.controlLockSeconds,
+      )
+      this.racerSprite?.triggerSpin(3)
+    }
+
     const keyboardItemPressed =
       this.useItemKey && Phaser.Input.Keyboard.JustDown(this.useItemKey)
     const touchItemPressed = this.touchControls?.consumeItemPress() ?? false
