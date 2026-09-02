@@ -15,8 +15,7 @@ type PlayerSnapshot = {
 }
 
 type SocketAttachment = {
-  id: string
-  racerKey: string
+  player: PlayerSnapshot
 }
 
 type ClientMessage =
@@ -98,15 +97,8 @@ export class RaceRoom {
 
     for (const socket of this.state.getWebSockets()) {
       const attachment = socket.deserializeAttachment() as SocketAttachment | null
-      if (!attachment?.id) continue
-      this.players.set(attachment.id, {
-        id: attachment.id,
-        racerKey: attachment.racerKey || 'racer-mario',
-        x: 0,
-        y: 0,
-        angle: 0,
-        speedRatio: 0,
-      })
+      if (!attachment?.player?.id) continue
+      this.players.set(attachment.player.id, { ...attachment.player })
     }
   }
 
@@ -129,7 +121,7 @@ export class RaceRoom {
     }
 
     this.players.set(id, player)
-    server.serializeAttachment({ id, racerKey: player.racerKey } satisfies SocketAttachment)
+    server.serializeAttachment({ player: { ...player } } satisfies SocketAttachment)
     this.state.acceptWebSocket(server)
 
     server.send(JSON.stringify({
@@ -143,7 +135,8 @@ export class RaceRoom {
 
   webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
     const attachment = (socket as any).deserializeAttachment?.() as SocketAttachment | undefined
-    if (!attachment?.id) return
+    const playerId = attachment?.player?.id
+    if (!playerId) return
     const payload = parseMessage(message)
     if (!payload) return
 
@@ -152,7 +145,7 @@ export class RaceRoom {
       return
     }
 
-    const player = this.players.get(attachment.id)
+    const player = this.players.get(playerId)
     if (!player) return
 
     if (payload.type === 'join') {
@@ -160,7 +153,7 @@ export class RaceRoom {
       player.x = finite(payload.x, player.x)
       player.y = finite(payload.y, player.y)
       player.angle = finite(payload.angle, player.angle)
-      ;(socket as any).serializeAttachment?.({ id: player.id, racerKey: player.racerKey } satisfies SocketAttachment)
+      this.saveAttachment(socket, player)
       this.broadcast({ type: 'player-joined', player }, socket)
       return
     }
@@ -170,6 +163,7 @@ export class RaceRoom {
       player.y = finite(payload.y, player.y)
       player.angle = finite(payload.angle, player.angle)
       player.speedRatio = finite(payload.speedRatio, player.speedRatio)
+      this.saveAttachment(socket, player)
       this.broadcast({ type: 'kart', player }, socket)
       return
     }
@@ -198,11 +192,16 @@ export class RaceRoom {
     this.removeSocket(socket)
   }
 
+  private saveAttachment(socket: WebSocket, player: PlayerSnapshot) {
+    ;(socket as any).serializeAttachment?.({ player: { ...player } } satisfies SocketAttachment)
+  }
+
   private removeSocket(socket: WebSocket) {
     const attachment = (socket as any).deserializeAttachment?.() as SocketAttachment | undefined
-    if (!attachment?.id) return
-    if (!this.players.delete(attachment.id)) return
-    this.broadcast({ type: 'player-left', id: attachment.id }, socket)
+    const playerId = attachment?.player?.id
+    if (!playerId) return
+    if (!this.players.delete(playerId)) return
+    this.broadcast({ type: 'player-left', id: playerId }, socket)
   }
 
   private broadcast(payload: unknown, except?: WebSocket) {
