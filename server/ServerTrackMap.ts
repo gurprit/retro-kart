@@ -1,64 +1,117 @@
-import fs from 'node:fs'
-import { PNG } from 'pngjs'
-
 export type ServerTrackSurface = 'road' | 'offRoad' | 'barrier' | 'void'
 
-type PixelSource = {
+export type TrackPixelSource = {
   width: number
   height: number
   data: Uint8Array
 }
 
+export type ClassifiedTrackMasks = {
+  width: number
+  height: number
+  roadMask: Uint8Array
+  solidMask: Uint8Array
+}
+
 const MASK_SOLID_THRESHOLD = 180
 const COLLISION_RADIUS = 7
+
+function bitMaskLength(width: number, height: number) {
+  return Math.ceil((width * height) / 8)
+}
+
+function setBit(mask: Uint8Array, index: number) {
+  mask[index >> 3] |= 1 << (index & 7)
+}
+
+function hasBit(mask: Uint8Array, index: number) {
+  return (mask[index >> 3] & (1 << (index & 7))) !== 0
+}
+
+export function classifyTrackMasks(
+  surface: TrackPixelSource,
+  collision: TrackPixelSource,
+): ClassifiedTrackMasks {
+  if (surface.width !== collision.width || surface.height !== collision.height) {
+    throw new Error(
+      `Collision mask must match track dimensions (${surface.width}x${surface.height})`,
+    )
+  }
+
+  const { width, height } = surface
+  const roadMask = new Uint8Array(bitMaskLength(width, height))
+  const solidMask = new Uint8Array(bitMaskLength(width, height))
+
+  for (let pixelIndex = 0; pixelIndex < width * height; pixelIndex += 1) {
+    const offset = pixelIndex * 4
+
+    const collisionR = collision.data[offset]
+    const collisionG = collision.data[offset + 1]
+    const collisionB = collision.data[offset + 2]
+    const collisionA = collision.data[offset + 3]
+    const collisionBrightness = (collisionR + collisionG + collisionB) / 3
+    if (collisionA > 16 && collisionBrightness >= MASK_SOLID_THRESHOLD) {
+      setBit(solidMask, pixelIndex)
+    }
+
+    const r = surface.data[offset]
+    const g = surface.data[offset + 1]
+    const b = surface.data[offset + 2]
+    const a = surface.data[offset + 3]
+    const maxChannel = Math.max(r, g, b)
+    const minChannel = Math.min(r, g, b)
+    const saturation = maxChannel - minChannel
+    const brightness = (r + g + b) / 3
+    const looksLikeTarmac =
+      a > 16 && saturation < 24 && brightness >= 65 && brightness <= 175
+
+    if (looksLikeTarmac) setBit(roadMask, pixelIndex)
+  }
+
+  return { width, height, roadMask, solidMask }
+}
 
 export class ServerTrackMap {
   readonly width: number
   readonly height: number
 
-  private constructor(
-    private readonly surface: PixelSource,
-    private readonly collision: PixelSource,
+  constructor(
+    width: number,
+    height: number,
+    private readonly roadMask: Uint8Array,
+    private readonly solidMask: Uint8Array,
   ) {
-    this.width = surface.width
-    this.height = surface.height
+    const expectedLength = bitMaskLength(width, height)
+    if (roadMask.length !== expectedLength || solidMask.length !== expectedLength) {
+      throw new Error(`Track bitmasks must contain ${expectedLength} bytes`)
+    }
+    this.width = width
+    this.height = height
   }
 
-  static async load(surfacePath: string, collisionPath: string) {
-    const [surface, collision] = await Promise.all([
-      ServerTrackMap.readPng(surfacePath),
-      ServerTrackMap.readPng(collisionPath),
-    ])
+  static fromPixels(surface: TrackPixelSource, collision: TrackPixelSource) {
+    const classified = classifyTrackMasks(surface, collision)
+    return new ServerTrackMap(
+      classified.width,
+      classified.height,
+      classified.roadMask,
+      classified.solidMask,
+    )
+  }
 
-    if (surface.width !== collision.width || surface.height !== collision.height) {
-      throw new Error(
-        `Collision mask must match track dimensions (${surface.width}x${surface.height})`,
-      )
-    }
-
-    return new ServerTrackMap(surface, collision)
+  static fromMasks(
+    width: number,
+    height: number,
+    roadMask: Uint8Array,
+    solidMask: Uint8Array,
+  ) {
+    return new ServerTrackMap(width, height, roadMask, solidMask)
   }
 
   sample(x: number, y: number): ServerTrackSurface {
     if (!this.isInside(x, y)) return 'void'
     if (this.isSolid(x, y)) return 'barrier'
-
-    const offset = this.pixelOffset(this.surface, Math.floor(x), Math.floor(y))
-    if (offset === undefined) return 'void'
-
-    const r = this.surface.data[offset]
-    const g = this.surface.data[offset + 1]
-    const b = this.surface.data[offset + 2]
-    const a = this.surface.data[offset + 3]
-    const maxChannel = Math.max(r, g, b)
-    const minChannel = Math.min(r, g, b)
-    const saturation = maxChannel - minChannel
-    const brightness = (r + g + b) / 3
-
-    const looksLikeTarmac =
-      a > 16 && saturation < 24 && brightness >= 65 && brightness <= 175
-
-    return looksLikeTarmac ? 'road' : 'offRoad'
+    return this.isRoad(x, y) ? 'road' : 'offRoad'
   }
 
   collidesAlongSegment(fromX: number, fromY: number, toX: number, toY: number) {
@@ -90,35 +143,22 @@ export class ServerTrackMap {
     return false
   }
 
-  private isSolid(x: number, y: number) {
-    const offset = this.pixelOffset(this.collision, Math.floor(x), Math.floor(y))
-    if (offset === undefined) return false
+  private isRoad(x: number, y: number) {
+    const pixelIndex = this.pixelIndex(Math.floor(x), Math.floor(y))
+    return pixelIndex === undefined ? false : hasBit(this.roadMask, pixelIndex)
+  }
 
-    const r = this.collision.data[offset]
-    const g = this.collision.data[offset + 1]
-    const b = this.collision.data[offset + 2]
-    const a = this.collision.data[offset + 3]
-    const brightness = (r + g + b) / 3
-    return a > 16 && brightness >= MASK_SOLID_THRESHOLD
+  private isSolid(x: number, y: number) {
+    const pixelIndex = this.pixelIndex(Math.floor(x), Math.floor(y))
+    return pixelIndex === undefined ? false : hasBit(this.solidMask, pixelIndex)
   }
 
   private isInside(x: number, y: number) {
     return x >= 0 && y >= 0 && x < this.width && y < this.height
   }
 
-  private pixelOffset(source: PixelSource, x: number, y: number) {
-    if (x < 0 || y < 0 || x >= source.width || y >= source.height) return undefined
-    return (y * source.width + x) * 4
-  }
-
-  private static readPng(path: string): Promise<PixelSource> {
-    return new Promise((resolve, reject) => {
-      fs.createReadStream(path)
-        .pipe(new PNG())
-        .on('parsed', function parsed(this: PNG) {
-          resolve({ width: this.width, height: this.height, data: this.data })
-        })
-        .on('error', reject)
-    })
+  private pixelIndex(x: number, y: number) {
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return undefined
+    return y * this.width + x
   }
 }
