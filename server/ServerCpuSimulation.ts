@@ -4,6 +4,7 @@ import type { CpuRacerSnapshot } from '../src/game/ai/ComputerRacerManager'
 import { ServerTrackMap, type ServerTrackSurface } from './ServerTrackMap'
 
 const CPU_COUNT = 20
+const MAX_RECOVERY_ATTEMPTS = 3
 
 const SURFACE_HANDLING: Record<ServerTrackSurface, KartSurfaceHandling> = {
   road: { speedMultiplier: 1, gripMultiplier: 1, dragMultiplier: 1 },
@@ -24,6 +25,10 @@ type CpuRacer = {
   recoverySteering: number
   stuckTimer: number
   shrinkTimer: number
+  recoveryAttempts: number
+  lastSafeX: number
+  lastSafeY: number
+  lastSafeAngle: number
 }
 
 export class ServerCpuSimulation {
@@ -66,6 +71,10 @@ export class ServerCpuSimulation {
         recoverySteering: 0,
         stuckTimer: 0,
         shrinkTimer: 0,
+        recoveryAttempts: 0,
+        lastSafeX: kart.x,
+        lastSafeY: kart.y,
+        lastSafeAngle: kart.angle,
       })
     }
   }
@@ -140,6 +149,18 @@ export class ServerCpuSimulation {
     const previousY = kart.y
     const handling = this.cpuHandling(surface, racer.pace)
 
+    if (
+      surface === 'road' &&
+      racer.recoveryTimer === 0 &&
+      racer.recoveryForwardTimer === 0 &&
+      Math.abs(kart.speedRatio) > 0.18
+    ) {
+      racer.lastSafeX = kart.x
+      racer.lastSafeY = kart.y
+      racer.lastSafeAngle = kart.angle
+      racer.recoveryAttempts = Math.max(0, racer.recoveryAttempts - deltaSeconds * 0.8)
+    }
+
     if (Math.abs(kart.speedRatio) < 0.08) racer.stuckTimer += deltaSeconds
     else racer.stuckTimer = Math.max(0, racer.stuckTimer - deltaSeconds * 2)
 
@@ -212,6 +233,13 @@ export class ServerCpuSimulation {
   }
 
   private beginRecovery(racer: CpuRacer) {
+    racer.recoveryAttempts += 1
+
+    if (racer.recoveryAttempts >= MAX_RECOVERY_ATTEMPTS) {
+      this.resetToSafePosition(racer)
+      return
+    }
+
     racer.recoverySteering = this.chooseEscapeSteering(racer)
     racer.recoveryTimer = 1.35
     racer.recoveryForwardTimer = 0
@@ -221,6 +249,20 @@ export class ServerCpuSimulation {
       -0.24,
       0.24,
     )
+  }
+
+  private resetToSafePosition(racer: CpuRacer) {
+    racer.kart.x = racer.lastSafeX
+    racer.kart.y = racer.lastSafeY
+    racer.kart.angle = racer.lastSafeAngle
+    racer.kart.speed = 0
+    racer.steering = 0
+    racer.stuckTimer = 0
+    racer.recoveryTimer = 0
+    racer.recoveryForwardTimer = 0
+    racer.recoverySteering = 0
+    racer.recoveryAttempts = 0
+    racer.laneBias = this.randomBetween(-0.18, 0.18)
   }
 
   private chooseEscapeSteering(racer: CpuRacer) {
