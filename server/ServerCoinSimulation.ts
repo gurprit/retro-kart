@@ -1,4 +1,5 @@
 import { ServerCpuSimulation } from './ServerCpuSimulation'
+import { ServerTrackMap } from './ServerTrackMap'
 
 export type CoinTarget = {
   id: string
@@ -22,19 +23,9 @@ export type ServerCoinPickup = {
 
 const TRACK_COIN_RESPAWN_SECONDS = 4.5
 const PICKUP_RADIUS_RATIO = 0.025
-
-const TRACK_COINS = [
-  { xRatio: 0.91, yRatio: 0.61 },
-  { xRatio: 0.91, yRatio: 0.57 },
-  { xRatio: 0.89, yRatio: 0.53 },
-  { xRatio: 0.78, yRatio: 0.49 },
-  { xRatio: 0.66, yRatio: 0.45 },
-  { xRatio: 0.53, yRatio: 0.42 },
-  { xRatio: 0.4, yRatio: 0.46 },
-  { xRatio: 0.31, yRatio: 0.56 },
-  { xRatio: 0.42, yRatio: 0.67 },
-  { xRatio: 0.64, yRatio: 0.68 },
-] as const
+const COIN_GRID_SPACING_RATIO = 0.032
+const COIN_EDGE_MARGIN_RATIO = 0.018
+const COIN_CLEARANCE_RATIO = 0.012
 
 type CoinState = ServerCoinSnapshot & { respawnTimer: number }
 
@@ -44,21 +35,15 @@ export class ServerCoinSimulation {
   private pendingPickups: ServerCoinPickup[] = []
 
   constructor(
-    width: number,
-    height: number,
+    private readonly track: ServerTrackMap,
     private readonly cpus: ServerCpuSimulation,
     private readonly getHumans: () => readonly CoinTarget[],
   ) {
-    const worldScale = Math.min(width, height)
+    const worldScale = Math.min(track.width, track.height)
     const radius = worldScale * PICKUP_RADIUS_RATIO
     this.pickupRadiusSq = radius * radius
-    this.coins = TRACK_COINS.map((definition, index) => ({
-      id: `coin-${index + 1}`,
-      x: width * definition.xRatio,
-      y: height * definition.yRatio,
-      active: true,
-      respawnTimer: 0,
-    }))
+    this.coins = this.createDenseRoadCoins(worldScale)
+    console.log(`[retro_kart] spawned ${this.coins.length} server coins across the road surface`)
   }
 
   update(deltaSeconds: number) {
@@ -106,5 +91,47 @@ export class ServerCoinSimulation {
     const pickups = this.pendingPickups
     this.pendingPickups = []
     return pickups
+  }
+
+  private createDenseRoadCoins(worldScale: number) {
+    const coins: CoinState[] = []
+    const spacing = Math.max(18, worldScale * COIN_GRID_SPACING_RATIO)
+    const edgeMargin = Math.max(12, worldScale * COIN_EDGE_MARGIN_RATIO)
+    const clearance = Math.max(8, worldScale * COIN_CLEARANCE_RATIO)
+    let row = 0
+
+    for (let y = edgeMargin; y < this.track.height - edgeMargin; y += spacing) {
+      const stagger = row % 2 === 0 ? 0 : spacing * 0.5
+      for (let x = edgeMargin + stagger; x < this.track.width - edgeMargin; x += spacing) {
+        if (!this.isSafeRoadPoint(x, y, clearance)) continue
+        coins.push({
+          id: `coin-${coins.length + 1}`,
+          x,
+          y,
+          active: true,
+          respawnTimer: 0,
+        })
+      }
+      row += 1
+    }
+
+    return coins
+  }
+
+  private isSafeRoadPoint(x: number, y: number, clearance: number) {
+    const diagonal = clearance * 0.72
+    const checks = [
+      [0, 0],
+      [clearance, 0],
+      [-clearance, 0],
+      [0, clearance],
+      [0, -clearance],
+      [diagonal, diagonal],
+      [-diagonal, diagonal],
+      [diagonal, -diagonal],
+      [-diagonal, -diagonal],
+    ] as const
+
+    return checks.every(([dx, dy]) => this.track.sample(x + dx, y + dy) === 'road')
   }
 }
