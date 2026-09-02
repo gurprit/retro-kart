@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { gameConfig } from './game/config/gameConfig'
 import { installBananaTransparency } from './game/items/installBananaTransparency'
 import { installCoinHudAnchor } from './game/items/installCoinHudAnchor'
+import { installDenseTrackCoins } from './game/items/installDenseTrackCoins'
 import { installFeatherPowerUp } from './game/items/installFeatherPowerUp'
 import { installGreenShellTransparency } from './game/items/installGreenShellTransparency'
 import { installItemCourseEnhancements } from './game/items/installItemCourseEnhancements'
@@ -14,6 +15,7 @@ installItemVisualFixes()
 installGreenShellTransparency()
 installBananaTransparency()
 installItemCourseEnhancements()
+installDenseTrackCoins()
 installWorldPickupParticles()
 installLightningPowerUp()
 installFeatherPowerUp()
