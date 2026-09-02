@@ -27,6 +27,11 @@ type WorldParticle = {
   body: Phaser.GameObjects.Rectangle | Phaser.GameObjects.Ellipse
 }
 
+type CoinBurstEvent = {
+  x: number
+  y: number
+}
+
 type ItemSystemInternals = {
   scene: Phaser.Scene
   renderer: {
@@ -49,9 +54,11 @@ type ItemSystemInternals = {
   startRoulette: () => void
   retroKartWorldParticles?: WorldParticle[]
   retroKartWorldParticleCamera?: CameraState
+  retroKartCoinBurstHandler?: (event: CoinBurstEvent) => void
 }
 
 const ITEM_BOX_RESPAWN_MS = 5000
+export const COIN_WORLD_BURST_EVENT = 'retro-kart:coin-world-burst'
 let installed = false
 
 export function installWorldPickupParticles() {
@@ -77,6 +84,20 @@ export function installWorldPickupParticles() {
     originalUpdate.call(this, deltaSeconds, camera)
     const system = this as unknown as ItemSystemInternals
     system.retroKartWorldParticleCamera = camera
+
+    if (!system.retroKartCoinBurstHandler) {
+      const handler = (event: CoinBurstEvent) => {
+        if (!event || !Number.isFinite(event.x) || !Number.isFinite(event.y)) return
+        spawnCoinWorldBurst(system, event.x, event.y)
+      }
+      system.retroKartCoinBurstHandler = handler
+      system.scene.events.on(COIN_WORLD_BURST_EVENT, handler)
+      system.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+        system.scene.events.off(COIN_WORLD_BURST_EVENT, handler)
+        system.retroKartCoinBurstHandler = undefined
+      })
+    }
+
     updateWorldParticles(system, deltaSeconds, camera)
   }
 
