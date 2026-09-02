@@ -23,11 +23,12 @@ export type ServerCoinPickup = {
 
 const TRACK_COIN_RESPAWN_SECONDS = 4.5
 const PICKUP_RADIUS_RATIO = 0.025
-const COIN_GRID_SPACING_RATIO = 0.032
-const COIN_EDGE_MARGIN_RATIO = 0.018
+const COINS_PER_CORNER = 20
+const COIN_SAMPLE_SPACING_RATIO = 0.018
 const COIN_CLEARANCE_RATIO = 0.012
 
 type CoinState = ServerCoinSnapshot & { respawnTimer: number }
+type RoadPoint = { x: number; y: number }
 
 export class ServerCoinSimulation {
   private readonly coins: CoinState[]
@@ -42,8 +43,10 @@ export class ServerCoinSimulation {
     const worldScale = Math.min(track.width, track.height)
     const radius = worldScale * PICKUP_RADIUS_RATIO
     this.pickupRadiusSq = radius * radius
-    this.coins = this.createDenseRoadCoins(worldScale)
-    console.log(`[retro_kart] spawned ${this.coins.length} server coins across the road surface`)
+    this.coins = this.createCornerCoins(worldScale)
+    console.log(
+      `[retro_kart] spawned ${this.coins.length} server coins (${COINS_PER_CORNER} per big corner)`,
+    )
   }
 
   update(deltaSeconds: number) {
@@ -93,27 +96,69 @@ export class ServerCoinSimulation {
     return pickups
   }
 
-  private createDenseRoadCoins(worldScale: number) {
-    const coins: CoinState[] = []
-    const spacing = Math.max(18, worldScale * COIN_GRID_SPACING_RATIO)
-    const edgeMargin = Math.max(12, worldScale * COIN_EDGE_MARGIN_RATIO)
+  private createCornerCoins(worldScale: number) {
+    const spacing = Math.max(14, worldScale * COIN_SAMPLE_SPACING_RATIO)
     const clearance = Math.max(8, worldScale * COIN_CLEARANCE_RATIO)
-    let row = 0
+    const candidates: RoadPoint[] = []
 
-    for (let y = edgeMargin; y < this.track.height - edgeMargin; y += spacing) {
-      const stagger = row % 2 === 0 ? 0 : spacing * 0.5
-      for (let x = edgeMargin + stagger; x < this.track.width - edgeMargin; x += spacing) {
-        if (!this.isSafeRoadPoint(x, y, clearance)) continue
+    for (let y = spacing; y < this.track.height - spacing; y += spacing) {
+      for (let x = spacing; x < this.track.width - spacing; x += spacing) {
+        if (this.isSafeRoadPoint(x, y, clearance)) candidates.push({ x, y })
+      }
+    }
+
+    const quadrants = [
+      candidates.filter((point) => point.x < this.track.width / 2 && point.y < this.track.height / 2),
+      candidates.filter((point) => point.x >= this.track.width / 2 && point.y < this.track.height / 2),
+      candidates.filter((point) => point.x < this.track.width / 2 && point.y >= this.track.height / 2),
+      candidates.filter((point) => point.x >= this.track.width / 2 && point.y >= this.track.height / 2),
+    ]
+
+    const coins: CoinState[] = []
+    quadrants.forEach((points, quadrantIndex) => {
+      if (points.length === 0) return
+
+      const centroid = points.reduce(
+        (sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }),
+        { x: 0, y: 0 },
+      )
+      centroid.x /= points.length
+      centroid.y /= points.length
+
+      const ordered = [...points].sort(
+        (a, b) =>
+          this.distanceSq(a.x, a.y, centroid.x, centroid.y) -
+          this.distanceSq(b.x, b.y, centroid.x, centroid.y),
+      )
+
+      const selected: RoadPoint[] = []
+      const minSeparationSq = Math.pow(spacing * 0.78, 2)
+      for (const point of ordered) {
+        if (selected.some((other) => this.distanceSq(point.x, point.y, other.x, other.y) < minSeparationSq)) {
+          continue
+        }
+        selected.push(point)
+        if (selected.length >= COINS_PER_CORNER) break
+      }
+
+      if (selected.length < COINS_PER_CORNER) {
+        for (const point of ordered) {
+          if (selected.includes(point)) continue
+          selected.push(point)
+          if (selected.length >= COINS_PER_CORNER) break
+        }
+      }
+
+      selected.slice(0, COINS_PER_CORNER).forEach((point, index) => {
         coins.push({
-          id: `coin-${coins.length + 1}`,
-          x,
-          y,
+          id: `corner-${quadrantIndex + 1}-coin-${index + 1}`,
+          x: point.x,
+          y: point.y,
           active: true,
           respawnTimer: 0,
         })
-      }
-      row += 1
-    }
+      })
+    })
 
     return coins
   }
@@ -133,5 +178,11 @@ export class ServerCoinSimulation {
     ] as const
 
     return checks.every(([dx, dy]) => this.track.sample(x + dx, y + dy) === 'road')
+  }
+
+  private distanceSq(ax: number, ay: number, bx: number, by: number) {
+    const dx = ax - bx
+    const dy = ay - by
+    return dx * dx + dy * dy
   }
 }
