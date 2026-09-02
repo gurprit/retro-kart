@@ -389,7 +389,10 @@ export class RaceScene extends Phaser.Scene {
       this.cameraState,
     )
 
+    this.itemSystem?.setNetworkAuthority(this.multiplayer?.isConnected ?? false)
+
     for (const hit of this.multiplayer?.consumeLocalHits() ?? []) {
+      if (this.playerKart.isInvulnerable) continue
       this.playerKart.applySpinOut(
         hit.blastX,
         hit.blastY,
@@ -399,11 +402,24 @@ export class RaceScene extends Phaser.Scene {
       this.racerSprite?.triggerSpin(3)
     }
 
+    for (const lightning of this.multiplayer?.consumeLocalLightning() ?? []) {
+      if (this.playerKart.isInvulnerable) continue
+      this.playerKart.applyLightningHit(lightning.controlLockSeconds)
+      this.racerSprite?.applyLightningShrink(lightning.shrinkDurationSeconds)
+      this.racerSprite?.triggerSpin(3)
+    }
+
+    const coinRewards = this.multiplayer?.consumeLocalCoinRewards() ?? 0
+    if (coinRewards > 0) this.playerKart.addCoins(coinRewards)
+
     const keyboardItemPressed =
       this.useItemKey && Phaser.Input.Keyboard.JustDown(this.useItemKey)
     const touchItemPressed = this.touchControls?.consumeItemPress() ?? false
     if (keyboardItemPressed || touchItemPressed) {
+      const connected = this.multiplayer?.isConnected ?? false
+      if (connected) this.itemSystem?.setNetworkAuthority(false)
       const usedItem = this.itemSystem?.useHeldItem()
+      if (connected) this.itemSystem?.setNetworkAuthority(true)
       if (usedItem) {
         this.multiplayer?.sendItemUse(usedItem, {
           x: this.playerKart.x,
