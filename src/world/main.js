@@ -1,6 +1,6 @@
 import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.8.0/dist/maplibre-gl.mjs'
 
-const state = { lat: 51.5055, lon: -0.0754, heading: 85, speed: 0 }
+const state = { lat: 51.50558, lon: -0.07536, heading: 0, speed: 0 }
 const keys = new Set()
 const earthRadius = 6378137
 const maxForwardSpeed = 22
@@ -9,28 +9,35 @@ const acceleration = 9
 const braking = 14
 const rollingDrag = 3
 const steeringRate = 78
-const kart = document.querySelector('#kart-sprite')
+const kartCanvas = document.querySelector('#kart-sprite')
 const errorBox = document.querySelector('#world-error')
+let transportSourceId = null
+let kartFrame = null
+let lastCameraUpdate = 0
 
 const map = new maplibregl.Map({
   container: 'world',
   style: 'https://tiles.openfreemap.org/styles/liberty',
   center: [state.lon, state.lat],
-  zoom: 17.3,
-  pitch: 67,
+  zoom: 18.8,
+  pitch: 52,
   bearing: state.heading,
   attributionControl: true,
   maplibreLogo: false,
   interactive: false,
-  antialias: true,
+  antialias: false,
 })
 
-map.on('load', () => {
+map.on('load', async () => {
   try {
     makeWorldGameLike()
+    kartFrame = await prepareKartFrame('/assets/characters/Racers - Mario.png')
+    await snapSpawnToNearestRoad()
+    updateCamera(performance.now(), true)
     updateHud()
+    drawKart()
   } catch (error) {
-    showError(`World Mode loaded, but styling failed.\n\n${String(error)}`)
+    showError(`World Mode loaded, but setup failed.\n\n${String(error)}`)
   }
 })
 
@@ -50,9 +57,9 @@ function frame(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05)
   lastTime = now
   updateKart(dt)
-  updateCamera()
+  updateCamera(now)
   updateHud()
-  updateKartSprite()
+  drawKart()
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
@@ -84,21 +91,42 @@ function updateKart(dt) {
   state.lon += east / (earthRadius * lonScale) * 180 / Math.PI
 }
 
-function updateCamera() {
+function updateCamera(now, force = false) {
   if (!map.loaded()) return
-  map.jumpTo({ center: [state.lon, state.lat], bearing: state.heading, pitch: 67, zoom: 17.3 })
+  if (!force && now - lastCameraUpdate < 33) return
+  lastCameraUpdate = now
+  map.jumpTo({
+    center: [state.lon, state.lat],
+    bearing: state.heading,
+    pitch: 52,
+    zoom: 18.8,
+    padding: { top: 0, right: 0, bottom: Math.round(window.innerHeight * 0.26), left: 0 },
+  })
 }
 
-function updateKartSprite() {
-  if (!kart) return
+function drawKart() {
+  if (!kartCanvas || !kartFrame) return
+  const ctx = kartCanvas.getContext('2d')
+  if (!ctx) return
+  ctx.imageSmoothingEnabled = false
+  ctx.clearRect(0, 0, kartCanvas.width, kartCanvas.height)
+
+  const size = 112
+  const x = (kartCanvas.width - size) / 2
+  const y = kartCanvas.height - size
+  ctx.drawImage(kartFrame, x, y, size, size)
+
   const steering = (keys.has('ArrowLeft') || keys.has('KeyA')) ? -1 : (keys.has('ArrowRight') || keys.has('KeyD')) ? 1 : 0
-  kart.style.setProperty('--kart-turn', `${steering * 4}deg`)
+  kartCanvas.style.setProperty('--kart-turn', `${steering * 3}deg`)
 }
 
 function makeWorldGameLike() {
   const layers = map.getStyle().layers || []
   for (const layer of layers) {
     if (layer.type === 'symbol') {
+      try { map.setLayoutProperty(layer.id, 'visibility', 'none') } catch {}
+    }
+    if (layer['source-layer'] === 'building') {
       try { map.setLayoutProperty(layer.id, 'visibility', 'none') } catch {}
     }
   }
@@ -110,27 +138,110 @@ function makeWorldGameLike() {
       type: 'fill-extrusion',
       source: buildingLayer.source,
       'source-layer': 'building',
-      minzoom: 14,
+      minzoom: 15,
       paint: {
-        'fill-extrusion-color': ['interpolate', ['linear'], ['coalesce', ['get', 'render_height'], ['get', 'height'], 8], 0, '#d9d2c3', 20, '#c6bba9', 80, '#a99d8c'],
+        'fill-extrusion-color': '#b9b0a2',
         'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 8],
         'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-        'fill-extrusion-opacity': 0.92,
+        'fill-extrusion-opacity': 0.88,
       },
     })
   }
 
   const transportLayer = layers.find((layer) => layer['source-layer'] === 'transportation')
   if (transportLayer) {
+    transportSourceId = transportLayer.source
     map.addLayer({
       id: 'retro-kart-road-highlight',
       type: 'line',
       source: transportLayer.source,
       'source-layer': 'transportation',
       filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service']]],
-      paint: { 'line-color': '#353535', 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2, 18, 14], 'line-opacity': 0.9 },
+      paint: {
+        'line-color': '#333333',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 15, 3, 19, 18],
+        'line-opacity': 0.96,
+      },
     })
   }
+}
+
+async function snapSpawnToNearestRoad() {
+  if (!transportSourceId) return
+  await waitForMapIdle()
+  const features = map.querySourceFeatures(transportSourceId, { sourceLayer: 'transportation' })
+  const allowed = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service'])
+  let best = null
+
+  for (const feature of features) {
+    if (!allowed.has(feature.properties?.class)) continue
+    const geometry = feature.geometry
+    const lines = geometry.type === 'LineString' ? [geometry.coordinates] : geometry.type === 'MultiLineString' ? geometry.coordinates : []
+    for (const line of lines) {
+      for (let i = 0; i < line.length - 1; i++) {
+        const candidate = nearestPointOnSegment(state.lon, state.lat, line[i], line[i + 1])
+        if (!best || candidate.distance < best.distance) best = candidate
+      }
+    }
+  }
+
+  if (best && best.distance < 120) {
+    state.lon = best.lon
+    state.lat = best.lat
+    state.heading = best.heading
+  }
+}
+
+function nearestPointOnSegment(lon, lat, a, b) {
+  const cosLat = Math.cos(lat * Math.PI / 180)
+  const metersPerDegLat = Math.PI * earthRadius / 180
+  const metersPerDegLon = metersPerDegLat * cosLat
+  const ax = (a[0] - lon) * metersPerDegLon
+  const ay = (a[1] - lat) * metersPerDegLat
+  const bx = (b[0] - lon) * metersPerDegLon
+  const by = (b[1] - lat) * metersPerDegLat
+  const vx = bx - ax
+  const vy = by - ay
+  const denom = vx * vx + vy * vy || 1
+  const t = Math.max(0, Math.min(1, -(ax * vx + ay * vy) / denom))
+  const px = ax + vx * t
+  const py = ay + vy * t
+  const distance = Math.hypot(px, py)
+  const snappedLon = lon + px / metersPerDegLon
+  const snappedLat = lat + py / metersPerDegLat
+  const heading = (Math.atan2(vx, vy) * 180 / Math.PI + 360) % 360
+  return { lon: snappedLon, lat: snappedLat, distance, heading }
+}
+
+function waitForMapIdle() {
+  if (map.loaded() && map.areTilesLoaded()) return Promise.resolve()
+  return new Promise((resolve) => map.once('idle', resolve))
+}
+
+function prepareKartFrame(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => {
+      const frameSize = image.naturalHeight
+      const canvas = document.createElement('canvas')
+      canvas.width = frameSize
+      canvas.height = frameSize
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })
+      ctx.drawImage(image, 0, 0, frameSize, frameSize, 0, 0, frameSize, frameSize)
+
+      const pixels = ctx.getImageData(0, 0, frameSize, frameSize)
+      for (let i = 0; i < pixels.data.length; i += 4) {
+        const r = pixels.data[i]
+        const g = pixels.data[i + 1]
+        const b = pixels.data[i + 2]
+        if (g > 70 && g > r * 1.18 && g > b * 1.12) pixels.data[i + 3] = 0
+      }
+      ctx.putImageData(pixels, 0, 0)
+      resolve(canvas)
+    }
+    image.onerror = reject
+    image.src = src
+  })
 }
 
 function updateHud() {
