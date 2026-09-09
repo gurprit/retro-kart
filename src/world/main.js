@@ -1,55 +1,6 @@
-const Cesium = window.Cesium
+import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.8.0/dist/maplibre-gl.mjs'
 
-const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
-const errorBox = document.querySelector('#world-error')
-
-if (!Cesium) {
-  showError('Cesium failed to load.')
-  throw new Error('Cesium failed to load')
-}
-
-if (!apiKey) {
-  showError(
-    'World Mode needs a Google Maps Platform API key.\n\nCreate .env.local in the project root and add:\nVITE_GOOGLE_MAPS_API_KEY=your_key_here',
-  )
-  throw new Error('Missing VITE_GOOGLE_MAPS_API_KEY')
-}
-
-Cesium.RequestScheduler.requestsByServer['tile.googleapis.com:443'] = 18
-
-const viewer = new Cesium.Viewer('world', {
-  animation: false,
-  baseLayerPicker: false,
-  fullscreenButton: false,
-  geocoder: false,
-  homeButton: false,
-  imageryProvider: false,
-  infoBox: false,
-  navigationHelpButton: false,
-  sceneModePicker: false,
-  selectionIndicator: false,
-  timeline: false,
-})
-
-viewer.scene.globe.show = false
-viewer.scene.skyAtmosphere.show = true
-viewer.scene.screenSpaceCameraController.enableInputs = false
-
-const tileset = viewer.scene.primitives.add(
-  new Cesium.Cesium3DTileset({
-    url: `https://tile.googleapis.com/v1/3dtiles/root.json?key=${encodeURIComponent(apiKey)}`,
-    showCreditsOnScreen: true,
-  }),
-)
-
-const state = {
-  lat: 51.5055,
-  lon: -0.0754,
-  altitude: 6,
-  heading: 0,
-  speed: 0,
-}
-
+const state = { lat: 51.5055, lon: -0.0754, heading: 85, speed: 0 }
 const keys = new Set()
 const earthRadius = 6378137
 const maxForwardSpeed = 22
@@ -58,53 +9,53 @@ const acceleration = 9
 const braking = 14
 const rollingDrag = 3
 const steeringRate = 78
+const kart = document.querySelector('#kart-sprite')
+const errorBox = document.querySelector('#world-error')
 
-const kartImage = await loadKartFrame('/assets/characters/Racers - Mario.png')
-
-const kart = viewer.entities.add({
-  position: Cesium.Cartesian3.fromDegrees(state.lon, state.lat, state.altitude),
-  billboard: {
-    image: kartImage,
-    width: 96,
-    height: 96,
-    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-    disableDepthTestDistance: 0,
-  },
+const map = new maplibregl.Map({
+  container: 'world',
+  style: 'https://tiles.openfreemap.org/styles/liberty',
+  center: [state.lon, state.lat],
+  zoom: 17.3,
+  pitch: 67,
+  bearing: state.heading,
+  attributionControl: true,
+  maplibreLogo: false,
+  interactive: false,
+  antialias: true,
 })
 
-try {
-  await tileset.readyPromise
-} catch (error) {
-  showError(`Google 3D Tiles could not load.\n\n${String(error)}`)
-  throw error
-}
+map.on('load', () => {
+  try {
+    makeWorldGameLike()
+    updateHud()
+  } catch (error) {
+    showError(`World Mode loaded, but styling failed.\n\n${String(error)}`)
+  }
+})
+
+map.on('error', (event) => {
+  console.error('MapLibre error', event.error)
+})
 
 window.addEventListener('keydown', (event) => {
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
-    event.preventDefault()
-  }
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) event.preventDefault()
   keys.add(event.code)
 })
-
-window.addEventListener('keyup', (event) => {
-  keys.delete(event.code)
-})
+window.addEventListener('keyup', (event) => keys.delete(event.code))
+window.addEventListener('blur', () => keys.clear())
 
 let lastTime = performance.now()
-
-viewer.clock.onTick.addEventListener(() => {
-  const now = performance.now()
+function frame(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05)
   lastTime = now
-
   updateKart(dt)
-  updateEntity()
   updateCamera()
   updateHud()
-})
-
-updateCamera()
-updateHud()
+  updateKartSprite()
+  requestAnimationFrame(frame)
+}
+requestAnimationFrame(frame)
 
 function updateKart(dt) {
   const forward = keys.has('ArrowUp') || keys.has('KeyW')
@@ -113,52 +64,73 @@ function updateKart(dt) {
   const right = keys.has('ArrowRight') || keys.has('KeyD')
   const hardBrake = keys.has('Space')
 
-  if (forward) {
-    state.speed = Math.min(maxForwardSpeed, state.speed + acceleration * dt)
-  } else if (reverse) {
-    state.speed = Math.max(maxReverseSpeed, state.speed - acceleration * dt)
-  } else {
-    state.speed = moveToward(state.speed, 0, rollingDrag * dt)
-  }
-
-  if (hardBrake) {
-    state.speed = moveToward(state.speed, 0, braking * dt)
-  }
+  if (forward) state.speed = Math.min(maxForwardSpeed, state.speed + acceleration * dt)
+  else if (reverse) state.speed = Math.max(maxReverseSpeed, state.speed - acceleration * dt)
+  else state.speed = moveToward(state.speed, 0, rollingDrag * dt)
+  if (hardBrake) state.speed = moveToward(state.speed, 0, braking * dt)
 
   const speedFactor = Math.min(Math.abs(state.speed) / 4, 1)
   const direction = state.speed >= 0 ? 1 : -1
-
   if (left) state.heading -= steeringRate * speedFactor * direction * dt
   if (right) state.heading += steeringRate * speedFactor * direction * dt
-
   state.heading = (state.heading + 360) % 360
 
   const distance = state.speed * dt
-  const headingRad = Cesium.Math.toRadians(state.heading)
+  const headingRad = state.heading * Math.PI / 180
   const north = Math.cos(headingRad) * distance
   const east = Math.sin(headingRad) * distance
-
-  state.lat += Cesium.Math.toDegrees(north / earthRadius)
-
-  const latitudeRadians = Cesium.Math.toRadians(state.lat)
-  const lonScale = Math.max(Math.cos(latitudeRadians), 0.0001)
-  state.lon += Cesium.Math.toDegrees(east / (earthRadius * lonScale))
-}
-
-function updateEntity() {
-  kart.position = new Cesium.ConstantPositionProperty(
-    Cesium.Cartesian3.fromDegrees(state.lon, state.lat, state.altitude),
-  )
+  state.lat += north / earthRadius * 180 / Math.PI
+  const lonScale = Math.max(Math.cos(state.lat * Math.PI / 180), 0.0001)
+  state.lon += east / (earthRadius * lonScale) * 180 / Math.PI
 }
 
 function updateCamera() {
-  const target = Cesium.Cartesian3.fromDegrees(state.lon, state.lat, state.altitude + 1.5)
-  const cameraHeading = Cesium.Math.toRadians(state.heading + 180)
+  if (!map.loaded()) return
+  map.jumpTo({ center: [state.lon, state.lat], bearing: state.heading, pitch: 67, zoom: 17.3 })
+}
 
-  viewer.camera.lookAt(
-    target,
-    new Cesium.HeadingPitchRange(cameraHeading, Cesium.Math.toRadians(-18), 22),
-  )
+function updateKartSprite() {
+  if (!kart) return
+  const steering = (keys.has('ArrowLeft') || keys.has('KeyA')) ? -1 : (keys.has('ArrowRight') || keys.has('KeyD')) ? 1 : 0
+  kart.style.setProperty('--kart-turn', `${steering * 4}deg`)
+}
+
+function makeWorldGameLike() {
+  const layers = map.getStyle().layers || []
+  for (const layer of layers) {
+    if (layer.type === 'symbol') {
+      try { map.setLayoutProperty(layer.id, 'visibility', 'none') } catch {}
+    }
+  }
+
+  const buildingLayer = layers.find((layer) => layer['source-layer'] === 'building')
+  if (buildingLayer) {
+    map.addLayer({
+      id: 'retro-kart-buildings',
+      type: 'fill-extrusion',
+      source: buildingLayer.source,
+      'source-layer': 'building',
+      minzoom: 14,
+      paint: {
+        'fill-extrusion-color': ['interpolate', ['linear'], ['coalesce', ['get', 'render_height'], ['get', 'height'], 8], 0, '#d9d2c3', 20, '#c6bba9', 80, '#a99d8c'],
+        'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 8],
+        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+        'fill-extrusion-opacity': 0.92,
+      },
+    })
+  }
+
+  const transportLayer = layers.find((layer) => layer['source-layer'] === 'transportation')
+  if (transportLayer) {
+    map.addLayer({
+      id: 'retro-kart-road-highlight',
+      type: 'line',
+      source: transportLayer.source,
+      'source-layer': 'transportation',
+      filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service']]],
+      paint: { 'line-color': '#353535', 'line-width': ['interpolate', ['linear'], ['zoom'], 14, 2, 18, 14], 'line-opacity': 0.9 },
+    })
+  }
 }
 
 function updateHud() {
@@ -167,50 +139,10 @@ function updateHud() {
   setText('#hud-heading', `${Math.round(state.heading)}°`)
   setText('#hud-speed', `${Math.round(Math.abs(state.speed) * 3.6)} km/h`)
 }
-
-function setText(selector, value) {
-  const element = document.querySelector(selector)
-  if (element) element.textContent = value
-}
-
+function setText(selector, value) { const el = document.querySelector(selector); if (el) el.textContent = value }
 function moveToward(value, target, amount) {
   if (value < target) return Math.min(value + amount, target)
   if (value > target) return Math.max(value - amount, target)
   return target
 }
-
-function showError(message) {
-  if (!errorBox) return
-  errorBox.hidden = false
-  errorBox.textContent = message
-}
-
-function loadKartFrame(src) {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.onload = () => {
-      const frameSize = image.naturalHeight
-      const canvas = document.createElement('canvas')
-      canvas.width = frameSize * 4
-      canvas.height = frameSize * 4
-
-      const context = canvas.getContext('2d')
-      context.imageSmoothingEnabled = false
-      context.clearRect(0, 0, canvas.width, canvas.height)
-      context.drawImage(
-        image,
-        0,
-        0,
-        frameSize,
-        frameSize,
-        0,
-        0,
-        canvas.width,
-        canvas.height,
-      )
-      resolve(canvas)
-    }
-    image.onerror = reject
-    image.src = src
-  })
-}
+function showError(message) { if (errorBox) { errorBox.hidden = false; errorBox.textContent = message } }
