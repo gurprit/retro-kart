@@ -2,23 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
-    />
-    <meta name="theme-color" content="#000000" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#111111" />
     <title>Retro Kart World Mode</title>
-    <link
-      rel="stylesheet"
-      href="https://ajax.googleapis.com/ajax/libs/cesiumjs/1.105/Build/Cesium/Widgets/widgets.css"
-    />
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@^6.8.0/dist/maplibre-gl.css" />
     <link rel="stylesheet" href="/src/world/world.css" />
   </head>
   <body>
     <div id="world"></div>
-
+    <div class="kart-layer" aria-hidden="true"><div id="kart-sprite" class="kart-sprite"></div></div>
     <div class="world-hud" aria-live="polite">
       <div class="world-hud__title">RETRO KART // WORLD MODE</div>
+      <div class="world-hud__subtitle">OpenFreeMap + MapLibre · Tower Bridge, London</div>
       <div class="world-hud__grid">
         <span>LAT</span><strong id="hud-lat">51.50550</strong>
         <span>LON</span><strong id="hud-lon">-0.07540</strong>
@@ -27,10 +22,7 @@
       </div>
       <div class="world-hud__controls">WASD / arrows to drive · Space to brake</div>
     </div>
-
     <div id="world-error" class="world-error" hidden></div>
-
-    <script src="https://ajax.googleapis.com/ajax/libs/cesiumjs/1.105/Build/Cesium/Cesium.js"></script>
     <script type="module" src="/src/world/main.js"></script>
   </body>
 </html>
