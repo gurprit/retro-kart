@@ -4,19 +4,24 @@ const state = { lat: 51.50558, lon: -0.07536, heading: 0, speed: 0, onRoad: true
 const keys = new Set()
 const earthRadius = 6378137
 
-const maxForwardSpeed = 58
-const maxReverseSpeed = -13
-const acceleration = 32
-const braking = 34
-const rollingDrag = 2.6
-const steeringRate = 124
+const maxForwardSpeed = 60
+const maxReverseSpeed = -14
+const acceleration = 42
+const braking = 38
+const rollingDrag = 2.2
+const steeringRate = 126
 const roadToleranceMeters = 11.5
 
 const cameraPitch = 84
 const cameraZoom = 20.45
 const cameraLookAheadMeters = 13
-const cameraIntervalMs = 20
+const cameraIntervalMs = 25
 const hudIntervalMs = 100
+
+const ROAD_CACHE_RADIUS_METERS = 320
+const ROAD_REFRESH_DISTANCE_METERS = 90
+const ROAD_REFRESH_INTERVAL_MS = 1800
+const ROAD_BUCKET_SIZE_METERS = 60
 
 const FRAME_WIDTH = 32
 const FRAME_HEIGHT = 32
@@ -41,8 +46,9 @@ let transportSourceId = null
 let kartFrames = []
 let lastCameraUpdate = 0
 let lastHudUpdate = 0
-let roadSegments = []
 let lastRoadRefresh = 0
+let lastRoadRefreshPosition = null
+let roadBuckets = new Map()
 let currentSteeringInput = 0
 
 const map = new maplibregl.Map({
@@ -64,8 +70,9 @@ map.on('load', async () => {
     makeWorldGameLike()
     kartFrames = await prepareKartFrames('/assets/characters/Racers - Mario.png')
     await waitForMapIdle()
-    refreshRoadSegments()
+    refreshRoadSegments(true)
     snapSpawnToNearestRoad()
+    refreshRoadSegments(true)
     updateCamera(performance.now(), true)
     updateHud()
     drawKart()
@@ -74,7 +81,6 @@ map.on('load', async () => {
   }
 })
 
-map.on('idle', () => refreshRoadSegments())
 map.on('error', (event) => console.error('MapLibre error', event.error))
 
 window.addEventListener('keydown', (event) => {
@@ -90,14 +96,15 @@ function frame(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05)
   lastTime = now
 
-  if (now - lastRoadRefresh > 1200 && map.areTilesLoaded()) refreshRoadSegments()
-
+  maybeRefreshRoadSegments(now)
   updateKart(dt)
   updateCamera(now)
+
   if (now - lastHudUpdate >= hudIntervalMs) {
     updateHud()
     lastHudUpdate = now
   }
+
   drawKart()
   requestAnimationFrame(frame)
 }
@@ -112,9 +119,15 @@ function updateKart(dt) {
 
   currentSteeringInput = (right ? 1 : 0) - (left ? 1 : 0)
 
-  if (forward) state.speed = Math.min(maxForwardSpeed, state.speed + acceleration * dt)
-  else if (reverse) state.speed = Math.max(maxReverseSpeed, state.speed - acceleration * dt)
-  else state.speed = moveToward(state.speed, 0, rollingDrag * dt)
+  if (forward) {
+    const speedRatio = Math.min(Math.max(state.speed, 0) / maxForwardSpeed, 1)
+    const throttleAcceleration = acceleration * (1 - speedRatio * 0.34)
+    state.speed = Math.min(maxForwardSpeed, state.speed + throttleAcceleration * dt)
+  } else if (reverse) {
+    state.speed = Math.max(maxReverseSpeed, state.speed - acceleration * 0.72 * dt)
+  } else {
+    state.speed = moveToward(state.speed, 0, rollingDrag * dt)
+  }
 
   if (hardBrake) state.speed = moveToward(state.speed, 0, braking * dt)
 
@@ -171,7 +184,7 @@ function updateKart(dt) {
   }
 
   state.onRoad = false
-  state.speed *= 0.82
+  state.speed *= 0.88
 }
 
 function movementCandidate(lon, lat, heading, distance) {
@@ -190,10 +203,7 @@ function isDriveableRoadPosition(nearest) {
 
 function updateCamera(now, force = false) {
   if (!map.loaded()) return
-  if (!force && now - lastCameraUpdate < cameraIntervalMs) {
-    positionKartOnMap()
-    return
-  }
+  if (!force && now - lastCameraUpdate < cameraIntervalMs) return
   lastCameraUpdate = now
 
   const lookAt = movementCandidate(
@@ -311,8 +321,28 @@ function makeWorldGameLike() {
   }
 }
 
-function refreshRoadSegments() {
+function maybeRefreshRoadSegments(now) {
+  if (!transportSourceId || !map.loaded() || !map.areTilesLoaded()) return
+  if (now - lastRoadRefresh < ROAD_REFRESH_INTERVAL_MS) return
+
+  if (!lastRoadRefreshPosition) {
+    refreshRoadSegments(true)
+    return
+  }
+
+  const moved = distanceBetweenMeters(
+    state.lon,
+    state.lat,
+    lastRoadRefreshPosition.lon,
+    lastRoadRefreshPosition.lat,
+  )
+
+  if (moved >= ROAD_REFRESH_DISTANCE_METERS) refreshRoadSegments()
+}
+
+function refreshRoadSegments(force = false) {
   if (!transportSourceId || !map.loaded()) return
+  if (!force && !map.areTilesLoaded()) return
 
   const features = map.querySourceFeatures(
     transportSourceId,
@@ -327,7 +357,9 @@ function refreshRoadSegments() {
     'minor',
     'service',
   ])
-  const segments = []
+
+  const nextBuckets = new Map()
+  const seen = new Set()
 
   for (const feature of features) {
     if (!allowed.has(feature.properties?.class)) continue
@@ -341,17 +373,40 @@ function refreshRoadSegments() {
 
     for (const line of lines) {
       for (let i = 0; i < line.length - 1; i++) {
-        segments.push([line[i], line[i + 1]])
+        const a = line[i]
+        const b = line[i + 1]
+        if (!segmentNearPlayer(a, b, ROAD_CACHE_RADIUS_METERS)) continue
+
+        const key = segmentKey(a, b)
+        if (seen.has(key)) continue
+        seen.add(key)
+
+        addSegmentToBuckets(nextBuckets, [a, b])
       }
     }
   }
 
-  if (segments.length) roadSegments = segments
+  if (nextBuckets.size > 0) {
+    roadBuckets = nextBuckets
+    lastRoadRefreshPosition = { lon: state.lon, lat: state.lat }
+  }
+
   lastRoadRefresh = performance.now()
 }
 
+function addSegmentToBuckets(buckets, segment) {
+  const [a, b] = segment
+  const midpointLon = (a[0] + b[0]) * 0.5
+  const midpointLat = (a[1] + b[1]) * 0.5
+  const bucket = roadBucketFor(midpointLon, midpointLat)
+  const key = `${bucket.x}:${bucket.y}`
+  const existing = buckets.get(key)
+  if (existing) existing.push(segment)
+  else buckets.set(key, [segment])
+}
+
 function snapSpawnToNearestRoad() {
-  const best = findNearestRoad(state.lon, state.lat)
+  const best = findNearestRoad(state.lon, state.lat, 3)
   if (!best || best.distance > 150) return
 
   state.lon = best.lon
@@ -360,15 +415,55 @@ function snapSpawnToNearestRoad() {
   state.onRoad = true
 }
 
-function findNearestRoad(lon, lat) {
+function findNearestRoad(lon, lat, searchRadiusBuckets = 1) {
+  const origin = roadBucketFor(lon, lat)
   let best = null
 
-  for (const [a, b] of roadSegments) {
-    const candidate = nearestPointOnSegment(lon, lat, a, b)
-    if (!best || candidate.distance < best.distance) best = candidate
+  for (let dx = -searchRadiusBuckets; dx <= searchRadiusBuckets; dx++) {
+    for (let dy = -searchRadiusBuckets; dy <= searchRadiusBuckets; dy++) {
+      const segments = roadBuckets.get(`${origin.x + dx}:${origin.y + dy}`)
+      if (!segments) continue
+
+      for (const [a, b] of segments) {
+        const candidate = nearestPointOnSegment(lon, lat, a, b)
+        if (!best || candidate.distance < best.distance) best = candidate
+      }
+    }
   }
 
   return best
+}
+
+function roadBucketFor(lon, lat) {
+  const cosLat = Math.cos(state.lat * Math.PI / 180)
+  const metersPerDegLat = Math.PI * earthRadius / 180
+  const metersPerDegLon = metersPerDegLat * Math.max(cosLat, 0.0001)
+  return {
+    x: Math.floor(lon * metersPerDegLon / ROAD_BUCKET_SIZE_METERS),
+    y: Math.floor(lat * metersPerDegLat / ROAD_BUCKET_SIZE_METERS),
+  }
+}
+
+function segmentNearPlayer(a, b, radiusMeters) {
+  const midpointLon = (a[0] + b[0]) * 0.5
+  const midpointLat = (a[1] + b[1]) * 0.5
+  const segmentHalfLength = distanceBetweenMeters(a[0], a[1], b[0], b[1]) * 0.5
+  return distanceBetweenMeters(state.lon, state.lat, midpointLon, midpointLat) <= radiusMeters + segmentHalfLength
+}
+
+function segmentKey(a, b) {
+  const aKey = `${a[0].toFixed(6)},${a[1].toFixed(6)}`
+  const bKey = `${b[0].toFixed(6)},${b[1].toFixed(6)}`
+  return aKey < bKey ? `${aKey}|${bKey}` : `${bKey}|${aKey}`
+}
+
+function distanceBetweenMeters(lonA, latA, lonB, latB) {
+  const meanLat = (latA + latB) * 0.5 * Math.PI / 180
+  const metersPerDegLat = Math.PI * earthRadius / 180
+  const metersPerDegLon = metersPerDegLat * Math.max(Math.cos(meanLat), 0.0001)
+  const dx = (lonB - lonA) * metersPerDegLon
+  const dy = (latB - latA) * metersPerDegLat
+  return Math.hypot(dx, dy)
 }
 
 function nearestPointOnSegment(lon, lat, a, b) {
