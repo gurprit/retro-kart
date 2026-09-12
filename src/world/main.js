@@ -1,6 +1,6 @@
 import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.8.0/dist/maplibre-gl.mjs'
 
-const state = { lat: 51.50558, lon: -0.07536, heading: 0, speed: 0 }
+const state = { lat: 51.50558, lon: -0.07536, heading: 0, speed: 0, onRoad: true }
 const keys = new Set()
 const earthRadius = 6378137
 const maxForwardSpeed = 22
@@ -9,18 +9,22 @@ const acceleration = 9
 const braking = 14
 const rollingDrag = 3
 const steeringRate = 78
+const roadToleranceMeters = 7.5
 const kartCanvas = document.querySelector('#kart-sprite')
 const errorBox = document.querySelector('#world-error')
 let transportSourceId = null
 let kartFrame = null
 let lastCameraUpdate = 0
+let roadSegments = []
+let lastRoadRefresh = 0
 
 const map = new maplibregl.Map({
   container: 'world',
   style: 'https://tiles.openfreemap.org/styles/liberty',
   center: [state.lon, state.lat],
-  zoom: 18.8,
-  pitch: 52,
+  zoom: 19.35,
+  pitch: 76,
+  maxPitch: 85,
   bearing: state.heading,
   attributionControl: true,
   maplibreLogo: false,
@@ -32,7 +36,9 @@ map.on('load', async () => {
   try {
     makeWorldGameLike()
     kartFrame = await prepareKartFrame('/assets/characters/Racers - Mario.png')
-    await snapSpawnToNearestRoad()
+    await waitForMapIdle()
+    refreshRoadSegments()
+    snapSpawnToNearestRoad()
     updateCamera(performance.now(), true)
     updateHud()
     drawKart()
@@ -41,9 +47,8 @@ map.on('load', async () => {
   }
 })
 
-map.on('error', (event) => {
-  console.error('MapLibre error', event.error)
-})
+map.on('idle', () => refreshRoadSegments())
+map.on('error', (event) => console.error('MapLibre error', event.error))
 
 window.addEventListener('keydown', (event) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) event.preventDefault()
@@ -56,6 +61,9 @@ let lastTime = performance.now()
 function frame(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.05)
   lastTime = now
+
+  if (now - lastRoadRefresh > 900 && map.areTilesLoaded()) refreshRoadSegments()
+
   updateKart(dt)
   updateCamera(now)
   updateHud()
@@ -82,25 +90,54 @@ function updateKart(dt) {
   if (right) state.heading += steeringRate * speedFactor * direction * dt
   state.heading = (state.heading + 360) % 360
 
+  const previous = { lat: state.lat, lon: state.lon }
   const distance = state.speed * dt
   const headingRad = state.heading * Math.PI / 180
   const north = Math.cos(headingRad) * distance
   const east = Math.sin(headingRad) * distance
-  state.lat += north / earthRadius * 180 / Math.PI
-  const lonScale = Math.max(Math.cos(state.lat * Math.PI / 180), 0.0001)
-  state.lon += east / (earthRadius * lonScale) * 180 / Math.PI
+  const candidateLat = state.lat + north / earthRadius * 180 / Math.PI
+  const lonScale = Math.max(Math.cos(candidateLat * Math.PI / 180), 0.0001)
+  const candidateLon = state.lon + east / (earthRadius * lonScale) * 180 / Math.PI
+
+  const nearest = findNearestRoad(candidateLon, candidateLat)
+
+  if (!nearest || nearest.distance > roadToleranceMeters) {
+    state.onRoad = false
+    state.lat = previous.lat
+    state.lon = previous.lon
+    state.speed *= 0.58
+    return
+  }
+
+  state.onRoad = true
+  state.lat = candidateLat
+  state.lon = candidateLon
+
+  // A small magnetic pull toward the road centre keeps the kart from slowly
+  // drifting across pavements while still allowing the player to steer.
+  if (nearest.distance > 2.2) {
+    const pull = Math.min((nearest.distance - 2.2) / 8, 0.16)
+    state.lon += (nearest.lon - state.lon) * pull
+    state.lat += (nearest.lat - state.lat) * pull
+  }
 }
 
 function updateCamera(now, force = false) {
   if (!map.loaded()) return
-  if (!force && now - lastCameraUpdate < 33) return
+  if (!force && now - lastCameraUpdate < 40) return
   lastCameraUpdate = now
+
   map.jumpTo({
     center: [state.lon, state.lat],
     bearing: state.heading,
-    pitch: 52,
-    zoom: 18.8,
-    padding: { top: 0, right: 0, bottom: Math.round(window.innerHeight * 0.26), left: 0 },
+    pitch: 76,
+    zoom: 19.35,
+    padding: {
+      top: Math.round(window.innerHeight * 0.03),
+      right: 0,
+      bottom: Math.round(window.innerHeight * 0.37),
+      left: 0,
+    },
   })
 }
 
@@ -111,13 +148,10 @@ function drawKart() {
   ctx.imageSmoothingEnabled = false
   ctx.clearRect(0, 0, kartCanvas.width, kartCanvas.height)
 
-  const size = 112
-  const x = (kartCanvas.width - size) / 2
-  const y = kartCanvas.height - size
+  const size = 104
+  const x = Math.round((kartCanvas.width - size) / 2)
+  const y = Math.round(kartCanvas.height - size - 4)
   ctx.drawImage(kartFrame, x, y, size, size)
-
-  const steering = (keys.has('ArrowLeft') || keys.has('KeyA')) ? -1 : (keys.has('ArrowRight') || keys.has('KeyD')) ? 1 : 0
-  kartCanvas.style.setProperty('--kart-turn', `${steering * 3}deg`)
 }
 
 function makeWorldGameLike() {
@@ -159,37 +193,55 @@ function makeWorldGameLike() {
       filter: ['in', ['get', 'class'], ['literal', ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service']]],
       paint: {
         'line-color': '#333333',
-        'line-width': ['interpolate', ['linear'], ['zoom'], 15, 3, 19, 18],
+        'line-width': ['interpolate', ['linear'], ['zoom'], 15, 3, 19, 18, 20, 24],
         'line-opacity': 0.96,
       },
     })
   }
 }
 
-async function snapSpawnToNearestRoad() {
-  if (!transportSourceId) return
-  await waitForMapIdle()
+function refreshRoadSegments() {
+  if (!transportSourceId || !map.loaded()) return
   const features = map.querySourceFeatures(transportSourceId, { sourceLayer: 'transportation' })
   const allowed = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service'])
-  let best = null
+  const segments = []
 
   for (const feature of features) {
     if (!allowed.has(feature.properties?.class)) continue
     const geometry = feature.geometry
-    const lines = geometry.type === 'LineString' ? [geometry.coordinates] : geometry.type === 'MultiLineString' ? geometry.coordinates : []
+    const lines = geometry.type === 'LineString'
+      ? [geometry.coordinates]
+      : geometry.type === 'MultiLineString'
+        ? geometry.coordinates
+        : []
+
     for (const line of lines) {
       for (let i = 0; i < line.length - 1; i++) {
-        const candidate = nearestPointOnSegment(state.lon, state.lat, line[i], line[i + 1])
-        if (!best || candidate.distance < best.distance) best = candidate
+        segments.push([line[i], line[i + 1]])
       }
     }
   }
 
-  if (best && best.distance < 120) {
-    state.lon = best.lon
-    state.lat = best.lat
-    state.heading = best.heading
+  if (segments.length) roadSegments = segments
+  lastRoadRefresh = performance.now()
+}
+
+function snapSpawnToNearestRoad() {
+  const best = findNearestRoad(state.lon, state.lat)
+  if (!best || best.distance > 150) return
+  state.lon = best.lon
+  state.lat = best.lat
+  state.heading = best.heading
+  state.onRoad = true
+}
+
+function findNearestRoad(lon, lat) {
+  let best = null
+  for (const [a, b] of roadSegments) {
+    const candidate = nearestPointOnSegment(lon, lat, a, b)
+    if (!best || candidate.distance < best.distance) best = candidate
   }
+  return best
 }
 
 function nearestPointOnSegment(lon, lat, a, b) {
@@ -249,6 +301,7 @@ function updateHud() {
   setText('#hud-lon', state.lon.toFixed(5))
   setText('#hud-heading', `${Math.round(state.heading)}°`)
   setText('#hud-speed', `${Math.round(Math.abs(state.speed) * 3.6)} km/h`)
+  setText('#hud-surface', state.onRoad ? 'ROAD' : 'BLOCKED')
 }
 function setText(selector, value) { const el = document.querySelector(selector); if (el) el.textContent = value }
 function moveToward(value, target, amount) {
