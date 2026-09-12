@@ -4,18 +4,22 @@ const state = { lat: 51.50558, lon: -0.07536, heading: 0, speed: 0, onRoad: true
 const keys = new Set()
 const earthRadius = 6378137
 
-const maxForwardSpeed = 60
-const maxReverseSpeed = -14
-const acceleration = 42
-const braking = 38
-const rollingDrag = 2.2
-const steeringRate = 126
-const roadToleranceMeters = 11.5
+// Deliberately arcade-like. The previous build could report a high HUD speed
+// while road-collision rejection prevented the world from actually advancing.
+const maxForwardSpeed = 82
+const maxReverseSpeed = -16
+const acceleration = 72
+const braking = 48
+const rollingDrag = 1.4
+const steeringRate = 132
+const roadToleranceMeters = 13.5
+const offRoadMaxSpeed = 13
+const offRoadDrag = 18
 
-const cameraPitch = 84
-const cameraZoom = 20.45
-const cameraLookAheadMeters = 13
-const cameraIntervalMs = 25
+const cameraPitch = 84.5
+const cameraZoom = 20.8
+const cameraLookAheadMeters = 9
+const cameraIntervalMs = 20
 const hudIntervalMs = 100
 
 const ROAD_CACHE_RADIUS_METERS = 320
@@ -35,10 +39,7 @@ const DRIVING_FRAMES = {
   hardTurn: 3,
   powerslide: 4,
 }
-const TURN_FRAME_THRESHOLDS = {
-  medium: 0.4,
-  hard: 0.72,
-}
+const TURN_FRAME_THRESHOLDS = { medium: 0.4, hard: 0.72 }
 
 const kartCanvas = document.querySelector('#kart-sprite')
 const errorBox = document.querySelector('#world-error')
@@ -121,7 +122,7 @@ function updateKart(dt) {
 
   if (forward) {
     const speedRatio = Math.min(Math.max(state.speed, 0) / maxForwardSpeed, 1)
-    const throttleAcceleration = acceleration * (1 - speedRatio * 0.34)
+    const throttleAcceleration = acceleration * (1 - speedRatio * 0.22)
     state.speed = Math.min(maxForwardSpeed, state.speed + throttleAcceleration * dt)
   } else if (reverse) {
     state.speed = Math.max(maxReverseSpeed, state.speed - acceleration * 0.72 * dt)
@@ -137,8 +138,8 @@ function updateKart(dt) {
   let proposedHeading = state.heading
   if (currentSteeringInput !== 0 && absSpeed > 0.2) {
     const speedRatio = Math.min(absSpeed / maxForwardSpeed, 1)
-    const highSpeedDamping = 1 - speedRatio * 0.28
-    const lowSpeedAssist = Math.min(absSpeed / 2.8, 1)
+    const highSpeedDamping = 1 - speedRatio * 0.24
+    const lowSpeedAssist = Math.min(absSpeed / 2.5, 1)
     proposedHeading = normalizeHeading(
       state.heading
         + currentSteeringInput
@@ -152,39 +153,29 @@ function updateKart(dt) {
 
   if (absSpeed < 0.01) return
 
-  const steeredMove = movementCandidate(
+  const candidate = movementCandidate(
     state.lon,
     state.lat,
     proposedHeading,
     state.speed * dt,
   )
-  const steeredRoad = findNearestRoad(steeredMove.lon, steeredMove.lat)
+  const nearestRoad = findNearestRoad(candidate.lon, candidate.lat)
 
-  if (isDriveableRoadPosition(steeredRoad)) {
-    state.heading = proposedHeading
-    state.lon = steeredMove.lon
-    state.lat = steeredMove.lat
-    state.onRoad = true
-    return
+  // Crucial change: never freeze movement merely because vector-road data is a
+  // few metres away from the visible road. The old reject/retry path made the
+  // world appear slow even when state.speed was large.
+  state.heading = proposedHeading
+  state.lon = candidate.lon
+  state.lat = candidate.lat
+  state.onRoad = isDriveableRoadPosition(nearestRoad)
+
+  if (!state.onRoad) {
+    if (state.speed > offRoadMaxSpeed) {
+      state.speed = moveToward(state.speed, offRoadMaxSpeed, offRoadDrag * dt)
+    } else if (state.speed < -offRoadMaxSpeed * 0.55) {
+      state.speed = moveToward(state.speed, -offRoadMaxSpeed * 0.55, offRoadDrag * dt)
+    }
   }
-
-  const straightMove = movementCandidate(
-    state.lon,
-    state.lat,
-    state.heading,
-    state.speed * dt,
-  )
-  const straightRoad = findNearestRoad(straightMove.lon, straightMove.lat)
-
-  if (isDriveableRoadPosition(straightRoad)) {
-    state.lon = straightMove.lon
-    state.lat = straightMove.lat
-    state.onRoad = true
-    return
-  }
-
-  state.onRoad = false
-  state.speed *= 0.88
 }
 
 function movementCandidate(lon, lat, heading, distance) {
@@ -233,7 +224,6 @@ function positionKartOnMap() {
 
 function drawKart() {
   if (!kartCanvas || kartFrames.length === 0) return
-
   const ctx = kartCanvas.getContext('2d')
   if (!ctx) return
 
@@ -304,13 +294,7 @@ function makeWorldGameLike() {
       source: transportLayer.source,
       'source-layer': 'transportation',
       filter: ['in', ['get', 'class'], ['literal', [
-        'motorway',
-        'trunk',
-        'primary',
-        'secondary',
-        'tertiary',
-        'minor',
-        'service',
+        'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service',
       ]]],
       paint: {
         'line-color': '#333333',
@@ -349,13 +333,7 @@ function refreshRoadSegments(force = false) {
     { sourceLayer: 'transportation' },
   )
   const allowed = new Set([
-    'motorway',
-    'trunk',
-    'primary',
-    'secondary',
-    'tertiary',
-    'minor',
-    'service',
+    'motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'minor', 'service',
   ])
 
   const nextBuckets = new Map()
@@ -380,7 +358,6 @@ function refreshRoadSegments(force = false) {
         const key = segmentKey(a, b)
         if (seen.has(key)) continue
         seen.add(key)
-
         addSegmentToBuckets(nextBuckets, [a, b])
       }
     }
@@ -521,27 +498,18 @@ function prepareKartFrames(src) {
       )
 
       const frames = []
-
       for (let index = 0; index < availableFrames; index += 1) {
         const sourceX = index * (FRAME_WIDTH + FRAME_GAP)
-        const imageData = sourceContext.getImageData(
-          sourceX,
-          0,
-          FRAME_WIDTH,
-          FRAME_HEIGHT,
-        )
-
+        const imageData = sourceContext.getImageData(sourceX, 0, FRAME_WIDTH, FRAME_HEIGHT)
         removeFrameBackground(imageData)
 
         const frameCanvas = document.createElement('canvas')
         frameCanvas.width = FRAME_WIDTH
         frameCanvas.height = FRAME_HEIGHT
-
         const frameContext = frameCanvas.getContext('2d')
         if (!frameContext) continue
 
         frameContext.imageSmoothingEnabled = false
-        frameContext.clearRect(0, 0, FRAME_WIDTH, FRAME_HEIGHT)
         frameContext.putImageData(imageData, 0, 0)
         frames.push(frameCanvas)
       }
@@ -571,7 +539,6 @@ function removeFrameBackground(imageData) {
         + Math.abs(pixels[offset + 2] - b)
         <= BACKGROUND_TOLERANCE,
     )
-
     if (matchesBackground) pixels[offset + 3] = 0
   }
 }
@@ -590,7 +557,7 @@ function updateHud() {
   setText('#hud-lon', state.lon.toFixed(5))
   setText('#hud-heading', `${Math.round(state.heading)}°`)
   setText('#hud-speed', `${Math.round(Math.abs(state.speed) * 3.6)} km/h`)
-  setText('#hud-surface', state.onRoad ? 'ROAD' : 'BLOCKED')
+  setText('#hud-surface', state.onRoad ? 'ROAD' : 'OFF ROAD')
 }
 
 function setText(selector, value) {
