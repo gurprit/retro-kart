@@ -3,12 +3,12 @@ import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.8.0/dist/maplibre-
 const state = { lat: 51.50558, lon: -0.07536, heading: 0, speed: 0, onRoad: true }
 const keys = new Set()
 const earthRadius = 6378137
-const maxForwardSpeed = 22
-const maxReverseSpeed = -7
-const acceleration = 9
-const braking = 14
-const rollingDrag = 3
-const steeringRate = 78
+const maxForwardSpeed = 36
+const maxReverseSpeed = -10
+const acceleration = 16
+const braking = 22
+const rollingDrag = 4
+const steeringRate = 102
 const roadToleranceMeters = 7.5
 const kartCanvas = document.querySelector('#kart-sprite')
 const errorBox = document.querySelector('#world-error')
@@ -22,8 +22,8 @@ const map = new maplibregl.Map({
   container: 'world',
   style: 'https://tiles.openfreemap.org/styles/liberty',
   center: [state.lon, state.lat],
-  zoom: 19.35,
-  pitch: 76,
+  zoom: 20.15,
+  pitch: 82,
   maxPitch: 85,
   bearing: state.heading,
   attributionControl: true,
@@ -84,10 +84,18 @@ function updateKart(dt) {
   else state.speed = moveToward(state.speed, 0, rollingDrag * dt)
   if (hardBrake) state.speed = moveToward(state.speed, 0, braking * dt)
 
-  const speedFactor = Math.min(Math.abs(state.speed) / 4, 1)
+  const absSpeed = Math.abs(state.speed)
   const direction = state.speed >= 0 ? 1 : -1
-  if (left) state.heading -= steeringRate * speedFactor * direction * dt
-  if (right) state.heading += steeringRate * speedFactor * direction * dt
+  const steeringInput = (right ? 1 : 0) - (left ? 1 : 0)
+
+  // Arcade steering: enough authority at low speed to turn naturally, but
+  // progressively calmer at high speed so the road does not whip around the kart.
+  if (steeringInput !== 0 && absSpeed > 0.4) {
+    const speedRatio = Math.min(absSpeed / maxForwardSpeed, 1)
+    const highSpeedDamping = 1 - speedRatio * 0.36
+    const lowSpeedAssist = Math.min(absSpeed / 5, 1)
+    state.heading += steeringInput * steeringRate * highSpeedDamping * lowSpeedAssist * direction * dt
+  }
   state.heading = (state.heading + 360) % 360
 
   const previous = { lat: state.lat, lon: state.lon }
@@ -105,37 +113,32 @@ function updateKart(dt) {
     state.onRoad = false
     state.lat = previous.lat
     state.lon = previous.lon
-    state.speed *= 0.58
+    state.speed *= 0.72
     return
   }
 
+  // Do not magnetically pull the kart toward the road centre. That was fighting
+  // steering input and made the world appear to pivot around the wrong point.
+  // The road data now acts only as a boundary/collision surface.
   state.onRoad = true
   state.lat = candidateLat
   state.lon = candidateLon
-
-  // A small magnetic pull toward the road centre keeps the kart from slowly
-  // drifting across pavements while still allowing the player to steer.
-  if (nearest.distance > 2.2) {
-    const pull = Math.min((nearest.distance - 2.2) / 8, 0.16)
-    state.lon += (nearest.lon - state.lon) * pull
-    state.lat += (nearest.lat - state.lat) * pull
-  }
 }
 
 function updateCamera(now, force = false) {
   if (!map.loaded()) return
-  if (!force && now - lastCameraUpdate < 40) return
+  if (!force && now - lastCameraUpdate < 33) return
   lastCameraUpdate = now
 
   map.jumpTo({
     center: [state.lon, state.lat],
     bearing: state.heading,
-    pitch: 76,
-    zoom: 19.35,
+    pitch: 82,
+    zoom: 20.15,
     padding: {
-      top: Math.round(window.innerHeight * 0.03),
+      top: 0,
       right: 0,
-      bottom: Math.round(window.innerHeight * 0.37),
+      bottom: Math.round(window.innerHeight * 0.44),
       left: 0,
     },
   })
@@ -216,9 +219,7 @@ function refreshRoadSegments() {
         : []
 
     for (const line of lines) {
-      for (let i = 0; i < line.length - 1; i++) {
-        segments.push([line[i], line[i + 1]])
-      }
+      for (let i = 0; i < line.length - 1; i++) segments.push([line[i], line[i + 1]])
     }
   }
 
