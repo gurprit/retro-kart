@@ -3,13 +3,24 @@ import * as maplibregl from 'https://unpkg.com/maplibre-gl@^6.8.0/dist/maplibre-
 const state = { lat: 51.50558, lon: -0.07536, heading: 0, speed: 0, onRoad: true }
 const keys = new Set()
 const earthRadius = 6378137
-const maxForwardSpeed = 36
-const maxReverseSpeed = -10
-const acceleration = 16
-const braking = 22
-const rollingDrag = 4
-const steeringRate = 102
-const roadToleranceMeters = 7.5
+
+// Arcade driving values. World Mode is deliberately quicker than the first
+// prototype, but steering is still damped at high speed.
+const maxForwardSpeed = 44
+const maxReverseSpeed = -11
+const acceleration = 20
+const braking = 26
+const rollingDrag = 4.5
+const steeringRate = 108
+const roadToleranceMeters = 10.5
+
+// The camera looks at a point in front of the kart. We then project the kart's
+// real geographic position back to screen space and draw the sprite there.
+// This means visual position and physics position share exactly the same anchor.
+const cameraPitch = 84
+const cameraZoom = 20.45
+const cameraLookAheadMeters = 13
+
 const kartCanvas = document.querySelector('#kart-sprite')
 const errorBox = document.querySelector('#world-error')
 let transportSourceId = null
@@ -22,8 +33,8 @@ const map = new maplibregl.Map({
   container: 'world',
   style: 'https://tiles.openfreemap.org/styles/liberty',
   center: [state.lon, state.lat],
-  zoom: 20.15,
-  pitch: 82,
+  zoom: cameraZoom,
+  pitch: cameraPitch,
   maxPitch: 85,
   bearing: state.heading,
   attributionControl: true,
@@ -56,6 +67,7 @@ window.addEventListener('keydown', (event) => {
 })
 window.addEventListener('keyup', (event) => keys.delete(event.code))
 window.addEventListener('blur', () => keys.clear())
+window.addEventListener('resize', positionKartOnMap)
 
 let lastTime = performance.now()
 function frame(now) {
@@ -88,60 +100,94 @@ function updateKart(dt) {
   const direction = state.speed >= 0 ? 1 : -1
   const steeringInput = (right ? 1 : 0) - (left ? 1 : 0)
 
-  // Arcade steering: enough authority at low speed to turn naturally, but
-  // progressively calmer at high speed so the road does not whip around the kart.
-  if (steeringInput !== 0 && absSpeed > 0.4) {
+  let proposedHeading = state.heading
+  if (steeringInput !== 0 && absSpeed > 0.35) {
     const speedRatio = Math.min(absSpeed / maxForwardSpeed, 1)
-    const highSpeedDamping = 1 - speedRatio * 0.36
-    const lowSpeedAssist = Math.min(absSpeed / 5, 1)
-    state.heading += steeringInput * steeringRate * highSpeedDamping * lowSpeedAssist * direction * dt
+    const highSpeedDamping = 1 - speedRatio * 0.45
+    const lowSpeedAssist = Math.min(absSpeed / 4.5, 1)
+    proposedHeading = normalizeHeading(
+      state.heading + steeringInput * steeringRate * highSpeedDamping * lowSpeedAssist * direction * dt,
+    )
   }
-  state.heading = (state.heading + 360) % 360
 
-  const previous = { lat: state.lat, lon: state.lon }
-  const distance = state.speed * dt
-  const headingRad = state.heading * Math.PI / 180
-  const north = Math.cos(headingRad) * distance
-  const east = Math.sin(headingRad) * distance
-  const candidateLat = state.lat + north / earthRadius * 180 / Math.PI
-  const lonScale = Math.max(Math.cos(candidateLat * Math.PI / 180), 0.0001)
-  const candidateLon = state.lon + east / (earthRadius * lonScale) * 180 / Math.PI
+  if (Math.abs(state.speed) < 0.01) return
 
-  const nearest = findNearestRoad(candidateLon, candidateLat)
+  // Try the player's requested steering first.
+  const steeredMove = movementCandidate(state.lon, state.lat, proposedHeading, state.speed * dt)
+  const steeredRoad = findNearestRoad(steeredMove.lon, steeredMove.lat)
 
-  if (!nearest || nearest.distance > roadToleranceMeters) {
-    state.onRoad = false
-    state.lat = previous.lat
-    state.lon = previous.lon
-    state.speed *= 0.72
+  if (isDriveableRoadPosition(steeredRoad)) {
+    state.heading = proposedHeading
+    state.lon = steeredMove.lon
+    state.lat = steeredMove.lat
+    state.onRoad = true
     return
   }
 
-  // Do not magnetically pull the kart toward the road centre. That was fighting
-  // steering input and made the world appear to pivot around the wrong point.
-  // The road data now acts only as a boundary/collision surface.
-  state.onRoad = true
-  state.lat = candidateLat
-  state.lon = candidateLon
+  // Important: do NOT keep rotating the heading when road collision rejects the
+  // movement. The old implementation did that, which made the whole map spin
+  // around a stationary kart. If the turn would leave the road, try continuing
+  // along the previous heading instead.
+  const straightMove = movementCandidate(state.lon, state.lat, state.heading, state.speed * dt)
+  const straightRoad = findNearestRoad(straightMove.lon, straightMove.lat)
+
+  if (isDriveableRoadPosition(straightRoad)) {
+    state.lon = straightMove.lon
+    state.lat = straightMove.lat
+    state.onRoad = true
+    state.speed *= 0.985
+    return
+  }
+
+  state.onRoad = false
+  state.speed *= 0.58
+}
+
+function movementCandidate(lon, lat, heading, distance) {
+  const headingRad = heading * Math.PI / 180
+  const north = Math.cos(headingRad) * distance
+  const east = Math.sin(headingRad) * distance
+  const nextLat = lat + north / earthRadius * 180 / Math.PI
+  const lonScale = Math.max(Math.cos(nextLat * Math.PI / 180), 0.0001)
+  const nextLon = lon + east / (earthRadius * lonScale) * 180 / Math.PI
+  return { lon: nextLon, lat: nextLat }
+}
+
+function isDriveableRoadPosition(nearest) {
+  return Boolean(nearest && nearest.distance <= roadToleranceMeters)
 }
 
 function updateCamera(now, force = false) {
   if (!map.loaded()) return
-  if (!force && now - lastCameraUpdate < 33) return
+  if (!force && now - lastCameraUpdate < 33) {
+    positionKartOnMap()
+    return
+  }
   lastCameraUpdate = now
 
+  const lookAt = movementCandidate(
+    state.lon,
+    state.lat,
+    state.heading,
+    cameraLookAheadMeters,
+  )
+
   map.jumpTo({
-    center: [state.lon, state.lat],
+    center: [lookAt.lon, lookAt.lat],
     bearing: state.heading,
-    pitch: 82,
-    zoom: 20.15,
-    padding: {
-      top: 0,
-      right: 0,
-      bottom: Math.round(window.innerHeight * 0.44),
-      left: 0,
-    },
+    pitch: cameraPitch,
+    zoom: cameraZoom,
+    padding: { top: 0, right: 0, bottom: 0, left: 0 },
   })
+
+  positionKartOnMap()
+}
+
+function positionKartOnMap() {
+  if (!kartCanvas || !map.loaded()) return
+  const point = map.project([state.lon, state.lat])
+  kartCanvas.style.left = `${Math.round(point.x)}px`
+  kartCanvas.style.top = `${Math.round(point.y)}px`
 }
 
 function drawKart() {
@@ -310,4 +356,5 @@ function moveToward(value, target, amount) {
   if (value > target) return Math.max(value - amount, target)
   return target
 }
+function normalizeHeading(value) { return (value % 360 + 360) % 360 }
 function showError(message) { if (errorBox) { errorBox.hidden = false; errorBox.textContent = message } }
