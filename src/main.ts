@@ -10,32 +10,39 @@ import { installItemVisualFixes } from './game/items/installItemVisualFixes'
 import { installLightningPowerUp } from './game/items/installLightningPowerUp'
 import { installWorldPickupParticles } from './game/items/installWorldPickupParticles'
 import { installSharedItemEffects } from './game/network/installSharedItemEffects'
+import { startWorldMode } from './world/WorldMode'
 
-installItemVisualFixes()
-installGreenShellTransparency()
-installBananaTransparency()
-installItemCourseEnhancements()
-installDenseTrackCoins()
-installWorldPickupParticles()
-installLightningPowerUp()
-installFeatherPowerUp()
-installSharedItemEffects()
-installCoinHudAnchor()
-new Phaser.Game(gameConfig)
+const worldMode = !new URLSearchParams(window.location.search).has('classic')
 
-const isTouchDevice =
-  typeof navigator !== 'undefined' &&
-  (navigator.maxTouchPoints > 0 || 'ontouchstart' in window)
+if (worldMode) {
+  void startWorldMode()
+} else {
+  installItemVisualFixes()
+  installGreenShellTransparency()
+  installBananaTransparency()
+  installItemCourseEnhancements()
+  installDenseTrackCoins()
+  installWorldPickupParticles()
+  installLightningPowerUp()
+  installFeatherPowerUp()
+  installSharedItemEffects()
+  installCoinHudAnchor()
+  new Phaser.Game(gameConfig)
 
-if (isTouchDevice) {
-  const initialPortrait = window.innerHeight > window.innerWidth
+  const isTouchDevice =
+    typeof navigator !== 'undefined' &&
+    (navigator.maxTouchPoints > 0 || 'ontouchstart' in window)
 
-  window.addEventListener('orientationchange', () => {
-    window.setTimeout(() => {
-      const nextPortrait = window.innerHeight > window.innerWidth
-      if (nextPortrait !== initialPortrait) {
-        window.location.reload()
-      }
-    }, 150)
-  })
+  if (isTouchDevice) {
+    const initialPortrait = window.innerHeight > window.innerWidth
+
+    window.addEventListener('orientationchange', () => {
+      window.setTimeout(() => {
+        const nextPortrait = window.innerHeight > window.innerWidth
+        if (nextPortrait !== initialPortrait) {
+          window.location.reload()
+        }
+      }, 150)
+    })
+  }
 }

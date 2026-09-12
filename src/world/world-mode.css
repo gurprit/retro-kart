@@ -1,0 +1,15 @@
+html, body, #world-map { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #78a5bd; }
+body { font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif; }
+#world-map { position: fixed; inset: 0; }
+#world-map canvas { cursor: default; }
+#world-kart { position: fixed; z-index: 4; left: 50%; top: 71%; width: clamp(92px, 12vw, 160px); aspect-ratio: 1; transform: translate(-50%, -50%); pointer-events: none; filter: drop-shadow(0 12px 5px #0009); background: url('/assets/characters/Racers - Mario.png') left center / 1200% 100% no-repeat; image-rendering: pixelated; }
+#world-hud { position: fixed; z-index: 5; top: 22px; left: 24px; padding: 12px 18px; color: #fff; background: #111c; border: 3px solid #fff; border-radius: 5px; text-shadow: 2px 2px #000; transform: skew(-3deg); }
+#world-hud strong { display: block; color: #ffd839; letter-spacing: 2px; }
+#world-hud output { font-size: 42px; line-height: 1; margin-right: 6px; font-variant-numeric: tabular-nums; }
+#world-hud em { display: block; color: #8dff76; font-style: normal; letter-spacing: 1px; }
+#world-hud em.offroad { color: #ffbd54; }
+#help { position: fixed; z-index: 5; right: 18px; top: 18px; color: white; padding: 9px 12px; background: #111b; font: 13px/1.5 monospace; text-align: right; }
+#help a { color: #ffd839; }
+#load-error { position: fixed; z-index: 10; inset: 40% 20%; padding: 24px; color: white; background: #710; text-align: center; }
+.maplibregl-control-container { font-family: sans-serif; }
+@media (max-width: 600px) { #help { top: auto; bottom: 12px; } #world-hud { top: 10px; left: 10px; } }
