@@ -2,7 +2,7 @@ html, body, #world { margin: 0; width: 100%; height: 100%; overflow: hidden; bac
 body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; color: #fff; }
 #world { position: fixed; inset: 0; }
 .kart-layer { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
-.kart-sprite { position: absolute; left: 50%; top: 72%; width: 104px; height: 104px; image-rendering: pixelated; transform: translate(-50%, -100%) rotate(var(--kart-turn, 0deg)); transform-origin: 50% 100%; filter: drop-shadow(0 6px 2px rgba(0,0,0,.28)); }
+.kart-sprite { position: absolute; left: 50%; top: 78%; width: 104px; height: 104px; image-rendering: pixelated; transform: translate(-50%, -100%); filter: drop-shadow(0 6px 2px rgba(0,0,0,.28)); }
 .world-hud { position: fixed; top: 16px; left: 16px; z-index: 10; min-width: 270px; padding: 12px 14px; border: 2px solid rgba(255,255,255,.9); background: rgba(0,0,0,.72); backdrop-filter: blur(4px); pointer-events: none; }
 .world-hud__title { font-weight: 800; letter-spacing: .06em; }
 .world-hud__subtitle { margin: 4px 0 10px; font-size: 10px; opacity: .62; }
@@ -13,4 +13,4 @@ body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Libe
 .world-error { position: fixed; inset: 50% auto auto 50%; z-index: 20; width: min(520px, calc(100vw - 40px)); transform: translate(-50%,-50%); box-sizing: border-box; padding: 18px; border: 2px solid #fff; background: rgba(0,0,0,.9); white-space: pre-line; line-height: 1.45; }
 .maplibregl-ctrl-bottom-right { z-index: 8; }
 .maplibregl-ctrl-attrib { font-size: 10px; }
-@media (max-width: 640px) { .world-hud { top: 8px; left: 8px; right: 8px; min-width: 0; } .kart-sprite { width: 88px; height: 88px; top: 74%; } }
+@media (max-width: 640px) { .world-hud { top: 8px; left: 8px; right: 8px; min-width: 0; } .kart-sprite { width: 88px; height: 88px; top: 80%; } }
